@@ -1,0 +1,17 @@
+{
+  "terraform": "1.14.1",
+  "awscli": "2.15.0",
+  "ansible": "latest",
+  "terragrunt": "v0.57.4",
+  "terrascan": "1.18.4",
+  "tflint": "0.50.3",
+  "tfsec": "1.28.5",
+  "trivy": "0.51.1",
+  "infracost": "0.10.30",
+  "tfupdate": "0.8.1",
+  "hcledit": "0.2.5",
+  "nodejs": "20",
+  "http-server": "14.1.1",
+  "gcloud": "latest",
+  "azurecli": "latest"
+}

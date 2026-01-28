@@ -1,0 +1,215 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+LOG_FILE="install-tools.log"
+SUMMARY_FILE="${SUMMARY_FILE:-install-summary.json}"
+VERSIONS_FILE="${VERSIONS_FILE:-.devcontainer/.tool-versions.json}"
+DRY_RUN=false
+INSTALL_TOOLS=(all)
+
+for arg in "$@"; do
+  case $arg in
+    --dry-run)
+      DRY_RUN=true
+      echo "[Dry Run] No changes will be made. Commands will be printed only."
+      ;;
+    --tools=*)
+      IFS=',' read -ra INSTALL_TOOLS <<< "${arg#*=}"
+      ;;
+    --summary-path=*)
+      SUMMARY_FILE="${arg#*=}"
+      ;;
+  esac
+done
+
+exec > >(tee -a "$LOG_FILE") 2>&1
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+SUMMARY_JSON="{}"
+EXPECTED_JSON="{}"
+
+if [[ -f "$VERSIONS_FILE" ]]; then
+  EXPECTED_JSON=$(<"$VERSIONS_FILE")
+fi
+
+log_step() {
+  echo -e "\n${YELLOW}🔧 $(date '+%Y-%m-%d %H:%M:%S') - $1${NC}"
+}
+
+run_cmd() {
+  log_step "$1"
+  shift
+  if $DRY_RUN; then
+    echo "[Dry Run] $*"
+  else
+    if "$@"; then
+      echo -e "${GREEN}✅ Success: $1${NC}"
+    else
+      echo -e "${RED}❌ Failed: $1${NC}"
+      exit 1
+    fi
+  fi
+}
+
+add_summary() {
+  local name=$1
+  local version=$2
+  SUMMARY_JSON=$(echo "$SUMMARY_JSON" | jq --arg name "$name" --arg ver "$version" '. + {($name): $ver}')
+
+  local expected_version
+  expected_version=$(echo "$EXPECTED_JSON" | jq -r --arg name "$name" '.[$name] // empty')
+
+  if [[ -n "$expected_version" && "$version" != "$expected_version" ]]; then
+    echo -e "${RED}⚠️ Version mismatch for $name: expected $expected_version, got $version${NC}"
+  fi
+}
+
+get_expected_version() {
+  local name=$1
+  echo "$EXPECTED_JSON" | jq -r --arg name "$name" '.[$name] // empty'
+}
+
+should_run() {
+  [[ " ${INSTALL_TOOLS[*]} " =~ " all " || " ${INSTALL_TOOLS[*]} " =~ " $1 " ]]
+}
+
+# OS dependencies
+log_step "Installing OS dependencies"
+run_cmd "Install OS dependencies" sudo apt-get update -y && sudo apt-get install -y \
+  curl unzip git jq gnupg software-properties-common ca-certificates lsb-release tar build-essential apt-transport-https
+
+# Terraform (manual installation)
+if should_run terraform; then
+  log_step "Installing Terraform"
+  version=$(get_expected_version terraform)
+  version="${version:-1.8.4}"
+
+  if ! $DRY_RUN; then
+    run_cmd "Download Terraform" curl -sLo terraform.zip "https://releases.hashicorp.com/terraform/${version}/terraform_${version}_linux_amd64.zip"
+    run_cmd "Unzip Terraform" unzip -o terraform.zip
+    run_cmd "Move Terraform" sudo mv terraform /usr/local/bin/
+    rm -f terraform.zip
+  fi
+
+  TERRAFORM_VERSION=$(terraform version -json | jq -r .terraform_version)
+  add_summary terraform "$TERRAFORM_VERSION"
+fi
+
+# AWS CLI
+if should_run awscli; then
+  log_step "Installing AWS CLI"
+  run_cmd "Download AWS CLI" curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+  run_cmd "Unzip AWS CLI" unzip -o awscliv2.zip
+  run_cmd "Install AWS CLI" sudo ./aws/install --update
+  rm -rf awscliv2.zip aws
+  AWS_VERSION=$(aws --version 2>&1 | awk '{print $1}' | cut -d/ -f2)
+  add_summary awscli "$AWS_VERSION"
+fi
+
+# Ansible
+if should_run ansible; then
+  log_step "Installing Ansible"
+  version=$(get_expected_version ansible)
+  
+  if ! $DRY_RUN; then
+    run_cmd "Update apt" sudo apt-get update -y
+    run_cmd "Install Python pip" sudo apt-get install -y python3-pip
+    if [[ -n "$version" && "$version" != "latest" ]]; then
+      run_cmd "Install Ansible" sudo pip3 install --break-system-packages "ansible==${version}"
+    else
+      run_cmd "Install Ansible" sudo pip3 install --break-system-packages ansible
+    fi
+  fi
+  
+  ANSIBLE_VERSION=$(ansible --version 2>/dev/null | head -n1 | awk '{print $2}' | tr -d '[]' || echo "installed")
+  add_summary ansible "$ANSIBLE_VERSION"
+fi
+
+# Node.js
+if should_run nodejs; then
+  log_step "Installing Node.js"
+  
+  if ! $DRY_RUN; then
+    # Check if nodejs is already installed from base image
+    if command -v node &> /dev/null; then
+      log_step "Node.js already installed, ensuring npm is available"
+      # Install npm separately if nodejs exists but npm doesn't
+      if ! command -v npm &> /dev/null; then
+        run_cmd "Install npm" sudo apt-get update && sudo apt-get install -y npm
+      fi
+    else
+      # Fresh installation from NodeSource
+      version=$(get_expected_version nodejs)
+      version="${version:-20}"
+      run_cmd "Download NodeSource setup script" curl -fsSL https://deb.nodesource.com/setup_${version}.x -o nodesource_setup.sh
+      run_cmd "Run NodeSource setup" sudo -E bash nodesource_setup.sh
+      run_cmd "Install Node.js and npm" sudo apt-get install -y nodejs
+      rm -f nodesource_setup.sh
+    fi
+  fi
+  
+  NODE_VERSION=$(node -v 2>/dev/null | sed 's/v//')
+  NPM_VERSION=$(npm -v 2>/dev/null || echo "not installed")
+  add_summary nodejs "$NODE_VERSION"
+  add_summary npm "$NPM_VERSION"
+fi
+
+# http-server (npm package)
+if should_run http-server; then
+  log_step "Installing http-server"
+  run_cmd "Install http-server globally" sudo npm install -g http-server
+  HTTPSERVER_VERSION=$(http-server --version 2>/dev/null || echo "installed")
+  add_summary http-server "$HTTPSERVER_VERSION"
+fi
+
+# Google Cloud SDK
+if should_run gcloud; then
+  log_step "Installing Google Cloud SDK"
+  
+  if ! $DRY_RUN; then
+    log_step "Add gcloud apt key"
+    curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo gpg --yes --dearmor -o /usr/share/keyrings/cloud.google.gpg
+    echo -e "${GREEN}✅ Success: Add gcloud apt key${NC}"
+    log_step "Add gcloud repository"
+    echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | sudo tee /etc/apt/sources.list.d/google-cloud-sdk.list > /dev/null
+    echo -e "${GREEN}✅ Success: Add gcloud repository${NC}"
+    run_cmd "Update apt" sudo apt-get update -y
+    run_cmd "Install gcloud" sudo apt-get install -y google-cloud-cli
+  fi
+  
+  GCLOUD_VERSION=$(gcloud version --format="value(version)" 2>/dev/null || echo "installed")
+  add_summary gcloud "$GCLOUD_VERSION"
+fi
+
+# Azure CLI
+if should_run azurecli; then
+  log_step "Installing Azure CLI"
+  
+  if ! $DRY_RUN; then
+    run_cmd "Install Azure CLI dependencies" sudo apt-get update && sudo apt-get install -y ca-certificates curl apt-transport-https lsb-release gnupg
+    log_step "Download Microsoft signing key"
+    curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | sudo gpg --yes --dearmor -o /etc/apt/keyrings/microsoft.gpg
+    echo -e "${GREEN}✅ Success: Download Microsoft signing key${NC}"
+    run_cmd "Set key permissions" sudo chmod go+r /etc/apt/keyrings/microsoft.gpg
+    log_step "Add Azure CLI repository"
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/azure-cli/ $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/azure-cli.list > /dev/null
+    echo -e "${GREEN}✅ Success: Add Azure CLI repository${NC}"
+    run_cmd "Update apt" sudo apt-get update -y
+    run_cmd "Install Azure CLI" sudo apt-get install -y azure-cli
+  fi
+  
+  AZCLI_VERSION=$(az version --output json 2>/dev/null | jq -r '."azure-cli"' || echo "installed")
+  add_summary azurecli "$AZCLI_VERSION"
+fi
+
+# Write summary
+if ! $DRY_RUN; then
+  echo "$SUMMARY_JSON" | jq . > "$SUMMARY_FILE"
+  echo -e "\n${GREEN}📦 Tool summary written to $SUMMARY_FILE${NC}"
+fi
+
+echo -e "\n${GREEN}✅ All tools installed successfully at $(date '+%Y-%m-%d %H:%M:%S')${NC}"
