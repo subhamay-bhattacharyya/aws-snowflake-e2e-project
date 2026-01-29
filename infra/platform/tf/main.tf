@@ -111,6 +111,9 @@ module "aws_iam_role_final" {
 # Phase 4: Configure S3 Event Notifications for Snowpipe Auto-Ingest
 # ----------------------------------------------------------------------------
 locals {
+  # Check if snowpipes are configured (known at plan time from input config)
+  has_snowpipes = length(local.snowpipes) > 0
+
   # Build notification configs from snowpipe outputs
   snowpipe_notifications = [
     for key, pipe in module.snowflake.snowpipes : {
@@ -126,7 +129,8 @@ locals {
 module "s3_event_notification" {
   source = "../../aws/tf/modules/s3_event_notification"
 
-  enabled       = length(local.snowpipe_notifications) > 0
+  # Use input config to determine if enabled (known at plan time)
+  enabled       = local.has_snowpipes
   bucket_name   = local.s3_config.bucket_name
   notifications = local.snowpipe_notifications
 
