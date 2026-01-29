@@ -1,0 +1,16 @@
+# Development Environment Configuration
+environment: dev
+snowflake_account: your-account-dev
+snowflake_region: us-east-1
+
+# Warehouse sizes for dev
+warehouse_sizes:
+  compute: X-SMALL
+  loading: SMALL
+  analytics: SMALL
+
+# Data retention
+data_retention_days: 1
+
+# Resource limits
+max_clusters: 1

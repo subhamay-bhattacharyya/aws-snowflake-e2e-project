@@ -1,0 +1,29 @@
+{
+  "aws": {
+    "region": "us-east-1",
+    "s3": {
+      "bucket_name": "snowflake-lakehouse-1",
+      "bucket_keys": ["raw-data/csv","raw-data/json"],
+      "versioning": true,
+      "kms_key_alias": "SB-KMS"
+    },
+    "iam": {
+      "role_name": "snowflake-external-stage-role"
+    }
+  },
+  "snowflake": {
+    "organization_name": "",
+    "account_name": "",
+    "role": "SYSADMIN",
+    "warehouses": [],
+    "databases": [],
+    "file_formats": [],
+    "storage_integrations": [],
+    "stages": [],
+    "snowpipes": []
+  },
+  "trust": {
+    "snowflake_principal_arn": "",
+    "snowflake_external_id": ""
+  }
+}

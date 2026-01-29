@@ -1,26 +1,31 @@
 name: Terraform Destroy
-run-name: Terraform Destroy - ${{ github.ref_name }}
+run-name: >
+  Destroy Platform by ${{ github.actor }} on ${{ github.ref_name }}
 
 on:
   workflow_dispatch:
-    inputs:
-      environment:
-        description: "Environment to deploy to (e.g., devl, test, prod)"
-        required: true
-        type: environment
-        default: devl
 
+concurrency:
+  group: terraform-destroy-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  id-token: write      # needed for OIDC
+  contents: read       # needed for checkout / Terraform
 
 jobs:
-  apply:
-    name: 🚧 Run Terraform Destroy
-    uses: subhamay-bhattacharyya-gha/tf-apply-wf/.github/workflows/terraform-destroy.yaml@main
+  terraform-destroy-platform:
+    name: Destroy Platform (AWS + Snowflake)
+    uses: subhamay-bhattacharyya-gha/terraform-destroy-wf/.github/workflows/terraform-destroy.yaml@feature/GHA-0032-add-platform-based-multi
     with:
-      environment: ${{ inputs.environment }}
-      terraform-dir: ${{ inputs.terraform-dir }}
-      tf-vars-file: ${{ inputs.tf-vars-file }}
-      ci-pipeline: false
+      cloud-provider: platform
+      backend-type: remote
+      aws-region: ${{ vars.AWS_REGION }}
+      snowflake-user: ${{ vars.SNOWFLAKE_USER }}
+      snowflake-organization-name: ${{ vars.SNOWFLAKE_ORGANIZATION_NAME }}
+      snowflake-account-name: ${{ vars.SNOWFLAKE_ACCOUNT_NAME }}
+      snowflake-role: ${{ vars.SNOWFLAKE_ROLE }}
     secrets:
-      aws-role-arn: ${{ secrets.AWS_ROLE_ARN }}
-      infracost-api-key: ${{ secrets.INFRACOST_API_KEY }}
-      infracost-gist-id: ${{ secrets.INFRACOST_GIST_ID }}
+      tfc-token: ${{ secrets.TF_TOKEN_APP_TERRAFORM_IO }}
+      aws-role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+      snowflake-private-key: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}

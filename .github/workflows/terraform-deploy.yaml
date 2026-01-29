@@ -1,0 +1,33 @@
+name: Terraform Deploy
+run-name: >
+  Deploy Platform by ${{ github.actor }} on ${{ github.ref_name }}
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: terraform-deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  id-token: write      # needed for OIDC
+  contents: read       # needed for checkout / Terraform
+
+jobs:
+  terraform-deploy-platform:
+    name: Deploy
+    uses: subhamay-bhattacharyya-gha/tf-deploy-multi-reusable-wf/.github/workflows/terraform-deploy.yaml@feature/GHA-0019-add-platform-based-multi
+    with:
+      cloud-provider: platform
+      tflint-ver: ${{ vars.TF_LINT_VER }}
+      backend-type: remote
+      aws-region: ${{ vars.AWS_REGION }}
+      tf-vars-file: terraform.tfvars
+      snowflake-user: ${{ vars.SNOWFLAKE_USER }}
+      snowflake-organization-name: ${{ vars.SNOWFLAKE_ORGANIZATION_NAME }}
+      snowflake-account-name: ${{ vars.SNOWFLAKE_ACCOUNT_NAME }}
+      snowflake-role: ${{ vars.SNOWFLAKE_ROLE }}
+    secrets:
+      tfc-token: ${{ secrets.TF_TOKEN_APP_TERRAFORM_IO }}
+      aws-role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+      snowflake-private-key: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
