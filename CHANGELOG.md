@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Documentation
+
+- Update CHANGELOG.md [skip ci]
+
 ## [Rel-001-20260129155431] - 2026-01-29
 
 ### Documentation
