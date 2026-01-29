@@ -13,7 +13,7 @@
 #                             │
 #                             ▼
 # ┌─────────────────────────────────────────────────────────────┐
-# │  PHASE 2: Snowflake Resources (module.snowflake)            │
+# │  PHASE 2: Snowflake Base Resources (module.snowflake)       │
 # ├─────────────────────────────────────────────────────────────┤
 # │  1. Warehouses (compute resources)                          │
 # │  2. Databases & Schemas                                     │
@@ -23,8 +23,7 @@
 # │                  STORAGE_AWS_EXTERNAL_ID                    │
 # │  5. External Stages (S3 paths)                              │
 # │  6. Tables (target tables for data)                         │
-# │  7. Snowpipes (auto-ingest pipelines)                       │
-# │     └─► Output: SQS Notification Channel ARN                │
+# │  NOTE: Snowpipes created separately in Phase 4              │
 # └─────────────────────────────────────────────────────────────┘
 #                             │
 #                             ▼
@@ -38,7 +37,16 @@
 #                             │
 #                             ▼
 # ┌─────────────────────────────────────────────────────────────┐
-# │  PHASE 4: S3 Event Notifications (module.s3_event_notification)│
+# │  PHASE 4: Snowpipes (snowflake_pipe resources)              │
+# ├─────────────────────────────────────────────────────────────┤
+# │  Create Snowpipes AFTER trust policy is updated             │
+# │  (auto_ingest requires valid IAM role assumption)           │
+# │     └─► Output: SQS Notification Channel ARN                │
+# └─────────────────────────────────────────────────────────────┘
+#                             │
+#                             ▼
+# ┌─────────────────────────────────────────────────────────────┐
+# │  PHASE 5: S3 Event Notifications (module.s3_event_notification)│
 # ├─────────────────────────────────────────────────────────────┤
 # │  Configure S3 bucket event notifications to trigger         │
 # │  Snowpipe auto-ingest via SQS queue                         │
@@ -66,7 +74,7 @@ module "aws" {
 }
 
 # ----------------------------------------------------------------------------
-# Phase 2: Snowflake Resources (COMMENTED OUT)
+# Phase 2: Snowflake Base Resources (WITHOUT Snowpipes)
 # ----------------------------------------------------------------------------
 module "snowflake" {
   source = "../../snowflake/tf"
@@ -79,7 +87,7 @@ module "snowflake" {
   storage_integration_config = local.storage_integrations
   stage_config               = local.stages
   table_config               = local.tables
-  snowpipe_config            = local.snowpipes
+  snowpipe_config            = {} # Empty - Snowpipes created in Phase 4
 
   depends_on = [module.aws]
 }
@@ -108,7 +116,27 @@ module "aws_iam_role_final" {
 }
 
 # ----------------------------------------------------------------------------
-# Phase 4: Configure S3 Event Notifications for Snowpipe Auto-Ingest
+# Phase 4: Snowpipes (created AFTER trust policy is updated)
+# ----------------------------------------------------------------------------
+# Snowpipes with auto_ingest=true require the IAM role to be assumable by
+# Snowflake. Creating them after the trust policy update ensures the
+# storage integration can successfully assume the IAM role.
+# ----------------------------------------------------------------------------
+resource "snowflake_pipe" "this" {
+  for_each = local.snowpipes
+
+  name           = each.value.name
+  database       = each.value.database
+  schema         = each.value.schema
+  copy_statement = each.value.copy_statement
+  auto_ingest    = lookup(each.value, "auto_ingest", true)
+  comment        = lookup(each.value, "comment", "")
+
+  depends_on = [module.aws_iam_role_final, module.snowflake]
+}
+
+# ----------------------------------------------------------------------------
+# Phase 5: Configure S3 Event Notifications for Snowpipe Auto-Ingest
 # ----------------------------------------------------------------------------
 locals {
   # Check if snowpipes are configured (known at plan time from input config)
@@ -116,7 +144,7 @@ locals {
 
   # Build notification configs from snowpipe outputs
   snowpipe_notifications = [
-    for key, pipe in module.snowflake.snowpipes : {
+    for key, pipe in snowflake_pipe.this : {
       id            = key
       sqs_arn       = pipe.notification_channel
       events        = ["s3:ObjectCreated:*"]
@@ -134,5 +162,5 @@ module "s3_event_notification" {
   bucket_name   = local.s3_config.bucket_name
   notifications = local.snowpipe_notifications
 
-  depends_on = [module.snowflake, module.aws_iam_role_final]
+  depends_on = [snowflake_pipe.this, module.aws_iam_role_final]
 }
