@@ -6,6 +6,16 @@ All notable changes to this project will be documented in this file.
 
 ### Miscellaneous Tasks
 
+- **iam:** Add propagation delay after trust policy update
+
+## [Rel-003-20260129192807] - 2026-01-29
+
+### Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+### Miscellaneous Tasks
+
 - **config:** Update AWS S3 bucket name for e2e testing
 - **config:** Update AWS S3 bucket name in e2e configuration
 - **config:** Update AWS S3 bucket name in configuration
