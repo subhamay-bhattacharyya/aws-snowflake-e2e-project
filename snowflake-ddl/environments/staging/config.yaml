@@ -1,0 +1,16 @@
+# Staging Environment Configuration
+environment: staging
+snowflake_account: your-account-staging
+snowflake_region: us-east-1
+
+# Warehouse sizes for staging
+warehouse_sizes:
+  compute: SMALL
+  loading: MEDIUM
+  analytics: MEDIUM
+
+# Data retention
+data_retention_days: 7
+
+# Resource limits
+max_clusters: 2

@@ -1,0 +1,16 @@
+# Production Environment Configuration
+environment: prod
+snowflake_account: your-account-prod
+snowflake_region: us-east-1
+
+# Warehouse sizes for prod
+warehouse_sizes:
+  compute: MEDIUM
+  loading: LARGE
+  analytics: LARGE
+
+# Data retention
+data_retention_days: 30
+
+# Resource limits
+max_clusters: 3
