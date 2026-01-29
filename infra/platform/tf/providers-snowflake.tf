@@ -10,9 +10,9 @@
 
 locals {
   # Resolve the key file path relative to the module
-  key_file_path = var.snowflake_private_key_path != "" ? "${path.module}/${var.snowflake_private_key_path}" : ""
+  key_file_path   = var.snowflake_private_key_path != "" ? "${path.module}/${var.snowflake_private_key_path}" : ""
   key_file_exists = local.key_file_path != "" ? fileexists(local.key_file_path) : false
-  
+
   # Use direct key content if provided, otherwise try to read from file path
   snowflake_private_key = var.snowflake_private_key != "" ? var.snowflake_private_key : (
     local.key_file_exists ? file(local.key_file_path) : null
