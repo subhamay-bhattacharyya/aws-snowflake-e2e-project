@@ -55,9 +55,16 @@ variable "snowflake_warehouse" {
 }
 
 variable "snowflake_private_key_path" {
-  description = "Path to Snowflake private key file for JWT authentication"
+  description = "Path to Snowflake private key file for JWT authentication (for local development)"
   type        = string
   default     = ""
+}
+
+variable "snowflake_private_key" {
+  description = "Snowflake private key content for JWT authentication (for CI/CD)"
+  type        = string
+  default     = ""
+  sensitive   = true
 }
 
 # ============================================================================
