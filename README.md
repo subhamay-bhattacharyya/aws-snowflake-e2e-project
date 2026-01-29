@@ -181,19 +181,33 @@ For security best practices, create a dedicated service account for GitHub Actio
 
 On your local machine, generate an RSA key pair:
 
+**Option A: Without Passphrase (Recommended for CI/CD)**
 ```bash
-# Generate private key with passphrase
-# Generate unencrypted PKCS8 private key
+# Generate unencrypted PKCS8 private key (no passphrase)
 openssl genrsa 2048 | openssl pkcs8 -topk8 -inform PEM -out snowflake_key.p8 -nocrypt
 
 # Generate public key
 openssl rsa -in snowflake_key.p8 -pubout -out snowflake_key.pub
+```
 
-# Extract public key value (remove header/footer and newlines)
+**Option B: With Passphrase (For enhanced security)**
+```bash
+# Generate encrypted PKCS8 private key (with passphrase)
+openssl genrsa 2048 | openssl pkcs8 -topk8 -inform PEM -out snowflake_key.p8 -v2 aes-256-cbc
+
+# Generate public key
+openssl rsa -in snowflake_key.p8 -pubout -out snowflake_key.pub
+```
+
+**Extract public key value** (for both options):
+```bash
+# Remove header/footer and newlines for Snowflake
 grep -v "BEGIN PUBLIC" snowflake_key.pub | grep -v "END PUBLIC" | tr -d '\n'
 ```
 
 **Save the output** - you'll need it for the next step.
+
+**Note:** If using a passphrase, you'll need to provide `SNOWFLAKE_PRIVATE_KEY_PASSPHRASE` as an additional secret.
 
 #### Step 2: Create Service Account in Snowflake
 
@@ -471,7 +485,7 @@ This project uses [Conventional Commits](https://www.conventionalcommits.org/) f
 | `feat` | New feature or functionality | `feat: add Azure storage integration support` |
 | `fix` | Bug fix | `fix: correct IAM trust policy condition` |
 | `docs` | Documentation changes | `docs: update README with setup instructions` |
-| `style` | Code style changes (formatting, whitespace) | `style: fix indentation in main.tf` |
+| `style` | Code style changes (formatting, whitespace) | `stylhttps://agxuokj-jkc15404.snowflakecomputing.com/console/login?activationToken=ver%3A1-hint%3A344489740-ETMsDgAAAZuzoPggABRBRVMvQ0JDL1BLQ1M1UGFkZGluZwEAABAAEBldmu8VANRBCTUgQE%2F7RGgAAABg%2Bi1xEnXGEcqx%2BVMauNO9GmzhCnHTRbWhExX%2Ftsk%2BfZHPKbTjNV61u9%2B%2BjuAiPOgpm%2FYk6MsqkwrbcUM5%2F9LYDHnEoUuMjYN5A7MZDQWpWfx2y6ERIZO3Uq1CuKFbCZbEABTZyEHS0WcfOoqbc3Dw6%2FyEs1zyow%3D%3De: fix indentation in main.tf` |
 | `refactor` | Code refactoring without feature changes | `refactor: simplify locals.tf configuration` |
 | `perf` | Performance improvements | `perf: optimize S3 bucket policy lookup` |
 | `test` | Adding or updating tests | `test: add validation for warehouse config` |

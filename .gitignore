@@ -85,3 +85,7 @@ dist/
 awscliv2.zip
 LICENSE.txt
 aws/*
+
+# Open ssl keys
+snowflake_key.p8
+snowflake_key.pub
