@@ -55,17 +55,13 @@ variable "snowflake_warehouse" {
 }
 
 variable "snowflake_private_key_path" {
-  description = "Path to Snowflake private key file for JWT authentication (for local development)"
+  description = "Path to Snowflake private key file for JWT authentication (for local development only)"
   type        = string
   default     = ""
 }
 
-variable "snowflake_private_key" {
-  description = "Snowflake private key content for JWT authentication (for CI/CD)"
-  type        = string
-  default     = ""
-  sensitive   = true
-}
+# Note: For CI/CD, set SNOWFLAKE_PRIVATE_KEY environment variable directly
+# The provider will pick it up automatically
 
 # ============================================================================
 # Configuration File Paths
