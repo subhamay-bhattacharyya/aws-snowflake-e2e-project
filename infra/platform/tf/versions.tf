@@ -13,7 +13,7 @@ terraform {
     }
     snowflake = {
       source  = "snowflakedb/snowflake"
-      version = "~> 0.98"
+      version = "0.99.0"
     }
     random = {
       source  = "hashicorp/random"
