@@ -3,13 +3,13 @@
 # Terraform Backend Configuration
 # ============================================================================
 
-terraform { 
-  cloud { 
-    
-    organization = "subhamay-bhattacharyya-projects" 
+terraform {
+  cloud {
 
-    workspaces { 
-      name = "aws-snowflake-e2e-project" 
-    } 
-  } 
+    organization = "subhamay-bhattacharyya-projects"
+
+    workspaces {
+      name = "aws-snowflake-e2e-project"
+    }
+  }
 }
