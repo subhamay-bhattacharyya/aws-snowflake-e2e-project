@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Documentation
 
 - Enhance Snowflake authentication documentation with dual key options
+- Update CHANGELOG.md [skip ci]
 
 ### Features
 
