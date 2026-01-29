@@ -54,12 +54,6 @@ variable "snowflake_warehouse" {
   default     = "COMPUTE_WH"
 }
 
-variable "snowflake_private_key_path" {
-  description = "Path to Snowflake private key file for JWT authentication (for local development only)"
-  type        = string
-  default     = ""
-}
-
 # Note: For CI/CD, set SNOWFLAKE_PRIVATE_KEY environment variable directly
 # The provider will pick it up automatically
 
