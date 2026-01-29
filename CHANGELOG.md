@@ -2,11 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [Rel-001-20260129155431] - 2026-01-29
 
 ### Documentation
 
 - Enhance Snowflake authentication documentation with dual key options
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ### Features
