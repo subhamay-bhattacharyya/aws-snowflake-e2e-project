@@ -11,14 +11,14 @@ on:
       - infra/aws/tf/**
       - infra/snowflake/tf/**
       - infra/platform/tf/**
-      - infra/input-jsons/**
+      - input-jsons/**
   pull_request:
     branches: [main]
     paths:
       - infra/aws/tf/**
       - infra/snowflake/tf/**
       - infra/platform/tf/**
-      - infra/input-jsons/**
+      - input-jsons/**
   workflow_dispatch:
 
 permissions:
