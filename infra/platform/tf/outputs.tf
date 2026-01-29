@@ -60,3 +60,18 @@ output "storage_aws_external_id" {
   description = "storage_aws_external_id"
   value       = local.snowflake_external_id_output
 }
+
+output "snowpipes" {
+  description = "Map of snowpipe names to their details"
+  value = {
+    for k, v in snowflake_pipe.this : k => {
+      name                 = v.name
+      database             = v.database
+      schema               = v.schema
+      copy_statement       = v.copy_statement
+      auto_ingest          = v.auto_ingest
+      notification_channel = v.notification_channel
+      comment              = v.comment
+    }
+  }
+}

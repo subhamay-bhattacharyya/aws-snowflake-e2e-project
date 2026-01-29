@@ -4,8 +4,22 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Miscellaneous Tasks
+
+- **config:** Update AWS S3 bucket name for e2e testing
+- **config:** Update AWS S3 bucket name in e2e configuration
+- **config:** Update AWS S3 bucket name in configuration
+- **config:** Update S3 bucket name and CI workflow paths
+
+### Refactor
+
+- **platform:** Reorganize snowpipe creation into separate phase
+
+## [Rel-002-20260129161615] - 2026-01-29
+
 ### Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ## [Rel-001-20260129155431] - 2026-01-29
