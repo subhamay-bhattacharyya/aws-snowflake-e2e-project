@@ -2,7 +2,7 @@
   "aws": {
     "region": "us-east-1",
     "s3": {
-      "bucket_name": "snowflake-lakehouse-1",
+      "bucket_name": "snowflake-e2e-project",
       "bucket_keys": ["raw-data/csv","raw-data/json"],
       "versioning": true,
       "kms_key_alias": "SB-KMS"
