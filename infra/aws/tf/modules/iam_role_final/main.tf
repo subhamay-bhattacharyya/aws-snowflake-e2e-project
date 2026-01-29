@@ -34,6 +34,9 @@ resource "null_resource" "update_trust_policy" {
         --role-name ${var.role_name} \
         --policy-document '${local.trust_policy}'
       echo "Trust policy updated successfully"
+      echo "Waiting 30 seconds for IAM trust policy propagation..."
+      sleep 30
+      echo "Propagation wait complete"
     EOT
   }
 }
