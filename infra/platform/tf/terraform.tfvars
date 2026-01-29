@@ -17,4 +17,4 @@ snowflake_config_path = "../../../input-jsons/snowflake/config.json"
 # ----------------------------------------------------------------------------
 # Project Configuration
 # ----------------------------------------------------------------------------
-project_code = "subham"
+project_code = "subhamay"
