@@ -223,12 +223,31 @@ locals {
       for db_key, db in lookup(local.snowflake_config, "databases", {}) : [
         for schema in lookup(db, "schemas", []) : [
           for table_key, table in lookup(schema, "tables", {}) : {
-            key      = "${db_key}_${lower(schema.name)}_${table_key}"
-            name     = table.name
-            database = var.project_code != "" ? upper("${var.project_code}_${db.name}") : db.name
-            schema   = schema.name
-            columns  = table.columns
-            comment  = lookup(table, "comment", "")
+            key                         = "${db_key}_${lower(schema.name)}_${table_key}"
+            database                    = var.project_code != "" ? upper("${var.project_code}_${db.name}") : db.name
+            schema                      = schema.name
+            name                        = table.name
+            table_type                  = lookup(table, "table_type", "PERMANENT")
+            comment                     = lookup(table, "comment", "")
+            columns = [
+              for col in table.columns : {
+                name     = col.name
+                type     = col.type
+                nullable = lookup(col, "nullable", true)
+                default  = lookup(col, "default", null)
+                comment  = lookup(col, "comment", null)
+                autoincrement = lookup(col, "autoincrement", null) != null ? {
+                  start     = lookup(col.autoincrement, "start", 1)
+                  increment = lookup(col.autoincrement, "increment", 1)
+                  order     = lookup(col.autoincrement, "order", false)
+                } : null
+              }
+            ]
+            primary_key                 = lookup(table, "primary_key", null)
+            cluster_by                  = lookup(table, "cluster_by", null)
+            data_retention_time_in_days = lookup(table, "data_retention_time_in_days", 1)
+            change_tracking             = lookup(table, "change_tracking", false)
+            drop_before_create          = lookup(table, "drop_before_create", false)
           }
         ]
       ]

@@ -130,28 +130,55 @@ output "iam_role" {
 # 5. Stages
 # ----------------------------------------------------------------------------
 
-output "stages" {
-  description = "Map of stage names to their details"
+# output "stages" {
+#   description = "Map of stage names to their details"
+#   value = {
+#     internal = {
+#       for k, v in module.snowflake.stages.internal : k => {
+#         name                 = v.name
+#         fully_qualified_name = v.fully_qualified_name
+#         database             = v.database
+#         schema               = v.schema
+#         comment              = v.comment
+#       }
+#     }
+#     external = {
+#       for k, v in module.snowflake.stages.external : k => {
+#         name                 = v.name
+#         fully_qualified_name = v.fully_qualified_name
+#         database             = v.database
+#         schema               = v.schema
+#         url                  = v.url
+#         storage_integration  = v.storage_integration
+#         comment              = v.comment
+#       }
+#     }
+#   }
+# }
+
+# ----------------------------------------------------------------------------
+# 6. Tables
+# ----------------------------------------------------------------------------
+
+output "tables" {
+  description = "Map of table names to their details"
   value = {
-    internal = {
-      for k, v in module.snowflake.stages.internal : k => {
-        name                 = v.name
-        fully_qualified_name = v.fully_qualified_name
-        database             = v.database
-        schema               = v.schema
-        comment              = v.comment
-      }
-    }
-    external = {
-      for k, v in module.snowflake.stages.external : k => {
-        name                 = v.name
-        fully_qualified_name = v.fully_qualified_name
-        database             = v.database
-        schema               = v.schema
-        url                  = v.url
-        storage_integration  = v.storage_integration
-        comment              = v.comment
-      }
+    for k, v in module.snowflake.tables : k => {
+      name                 = v.name
+      fully_qualified_name = v.fully_qualified_name
+      database             = v.database
+      schema               = v.schema
+      table_type           = v.table_type
+      columns = [
+        for col in v.columns : {
+          name          = col.name
+          type          = col.type
+          nullable      = col.nullable
+          comment       = col.comment
+          autoincrement = col.autoincrement
+        }
+      ]
+      comment = v.comment
     }
   }
 }

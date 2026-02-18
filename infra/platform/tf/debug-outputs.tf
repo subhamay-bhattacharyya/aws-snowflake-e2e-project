@@ -39,7 +39,7 @@
 #   value       = local.stages
 # }
 
-# output "local_tables" {
-#   description = "Table configurations from locals"
-#   value       = local.tables
-# }
+output "local_tables" {
+  description = "Table configurations from locals"
+  value       = local.tables
+}

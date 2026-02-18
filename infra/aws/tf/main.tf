@@ -49,7 +49,7 @@ module "s3" {
 #    - First apply: creates role with placeholder trust policy
 #    - After Phase 2: re-apply with snowflake_principal_arn and snowflake_external_id
 module "iam_role" {
-  source   = "github.com/subhamay-bhattacharyya-tf/terraform-aws-iam/modules/role?ref=feature/TFMOD-0003-initial-release-aws-iam-r"
+  source   = "github.com/subhamay-bhattacharyya-tf/terraform-aws-iam/modules/role?ref=main"
   iam_role = var.iam_role_config
 
   depends_on = [module.s3]

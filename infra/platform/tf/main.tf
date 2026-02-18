@@ -96,7 +96,7 @@ module "snowflake" {
   file_format_configs         = local.file_formats
   storage_integration_configs = local.storage_integrations
   stage_configs               = local.stages
-  # table_config               = local.tables
+  table_configs               = local.tables
   # snowpipe_config            = {} # Empty - Snowpipes created in Phase 4
 
   depends_on = [module.aws]

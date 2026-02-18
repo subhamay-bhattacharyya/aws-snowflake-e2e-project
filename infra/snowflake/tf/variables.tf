@@ -26,7 +26,7 @@ variable "database_schemas" {
         create_stage_roles       = optional(list(string), [])
         create_table_roles       = optional(list(string), [])
         create_pipe_roles        = optional(list(string), [])
-      }), {
+        }), {
         usage_roles              = []
         create_file_format_roles = []
         create_stage_roles       = []
@@ -54,6 +54,38 @@ variable "stage_configs" {
   description = "Stage configuration map"
   type        = map(any)
   default     = {}
+}
+
+variable "table_configs" {
+  description = "Table configuration map"
+  type = map(object({
+    database                   = string
+    schema                     = string
+    name                       = string
+    table_type                 = optional(string, "PERMANENT")
+    comment                    = optional(string, "")
+    columns = list(object({
+      name     = string
+      type     = string
+      nullable = optional(bool, true)
+      default  = optional(string, null)
+      comment  = optional(string, null)
+      autoincrement = optional(object({
+        start     = optional(number, 1)
+        increment = optional(number, 1)
+        order     = optional(bool, false)
+      }), null)
+    }))
+    primary_key = optional(object({
+      name = optional(string, null)
+      keys = list(string)
+    }), null)
+    cluster_by                 = optional(list(string), null)
+    data_retention_time_in_days = optional(number, 1)
+    change_tracking            = optional(bool, false)
+    drop_before_create         = optional(bool, false)
+  }))
+  default = {}
 }
 
 # variable "database_config" {

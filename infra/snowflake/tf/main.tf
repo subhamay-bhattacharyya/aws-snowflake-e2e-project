@@ -84,7 +84,7 @@ module "warehouse" {
 # 2. Databases and Schema
 # ----------------------------------------------------------------------------
 module "database_schemas" {
-  source = "github.com/subhamay-bhattacharyya-tf/terraform-snowflake-database-schema?ref=feature/TFMOD-0009-add-database-and-schema-g"
+  source = "github.com/subhamay-bhattacharyya-tf/terraform-snowflake-database-schema?ref=main"
 
   providers = {
     snowflake = snowflake.db_provisioner
@@ -127,7 +127,7 @@ module "storage_integrations" {
 # 5. Stages
 # ----------------------------------------------------------------------------
 module "stage" {
-  source = "github.com/subhamay-bhattacharyya-tf/terraform-snowflake-stage?ref=feature/TFMOD-0007-refactor-repository-struc"
+  source = "github.com/subhamay-bhattacharyya-tf/terraform-snowflake-stage?ref=main"
 
   providers = {
     snowflake = snowflake.ingest_object_provisioner
@@ -138,33 +138,20 @@ module "stage" {
   depends_on = [module.storage_integrations]
 }
 
-# # 6. Tables
-# resource "snowflake_table" "this" {
-#   for_each = var.table_config
+# ----------------------------------------------------------------------------
+# 6. Tables
+# ----------------------------------------------------------------------------
+module "table" {
+  source = "github.com/subhamay-bhattacharyya-tf/terraform-snowflake-table?ref=main"
 
-#   database = each.value.database
-#   schema   = each.value.schema
-#   name     = each.value.name
-#   comment  = lookup(each.value, "comment", "")
+  providers = {
+    snowflake = snowflake.data_object_provisioner
+  }
 
-#   dynamic "column" {
-#     for_each = each.value.columns
-#     content {
-#       name     = column.value.name
-#       type     = column.value.type
-#       nullable = lookup(column.value, "nullable", true)
+  table_configs = var.table_configs
 
-#       dynamic "default" {
-#         for_each = lookup(column.value, "default", null) != null ? [1] : []
-#         content {
-#           expression = column.value.default
-#         }
-#       }
-#     }
-#   }
-
-#   depends_on = [snowflake_schema.this]
-# }
+  depends_on = [module.stage]
+}
 
 # # 7. Snowpipes
 # resource "snowflake_pipe" "this" {

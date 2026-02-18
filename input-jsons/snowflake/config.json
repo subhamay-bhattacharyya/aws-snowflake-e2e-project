@@ -3,7 +3,9 @@
     "s3": {
       "name": "S3_STORAGE_INTEGRATION",
       "storage_provider": "S3",
-      "storage_allowed_locations": [""],
+      "storage_allowed_locations": [
+        ""
+      ],
       "enabled": true,
       "comment": "Storage integration for S3 bucket access"
     }
@@ -100,30 +102,78 @@
           },
           "tables": {
             "raw_aqi": {
+              "database": "AQI_DATABASE",
+              "schema": "BRONZE",
               "name": "RAW_AQI",
+              "table_type": "TRANSIENT",
+              "drop_before_create": true,
               "comment": "Raw ingestion table storing AQI payloads as VARIANT with metadata columns.",
               "columns": [
                 {
-                  "name": "DATA",
+                  "name": "ID",
+                  "type": "NUMBER(38,0)",
+                  "nullable": false,
+                  "comment": "Primary key with autoincrement",
+                  "autoincrement": {
+                    "start": 1,
+                    "increment": 1,
+                    "order": false
+                  }
+                },
+                {
+                  "name": "INDEX_RECORD_TS",
+                  "type": "TIMESTAMP_NTZ",
+                  "nullable": false,
+                  "comment": "Timestamp of the AQI index record"
+                },
+                {
+                  "name": "JSON_DATA",
                   "type": "VARIANT",
-                  "comment": "Raw AQI JSON payload exactly as received from source files"
+                  "nullable": false,
+                  "comment": "Raw JSON payload from AQI source"
                 },
                 {
-                  "name": "FILE_NAME",
-                  "type": "STRING",
-                  "comment": "Source file name from internal stage"
+                  "name": "RECORD_COUNT",
+                  "type": "NUMBER(38,0)",
+                  "nullable": false,
+                  "comment": "Number of records in the JSON payload"
                 },
                 {
-                  "name": "LOAD_TS",
-                  "type": "TIMESTAMP",
-                  "comment": "Record ingestion timestamp"
+                  "name": "JSON_VERSION",
+                  "type": "VARCHAR(255)",
+                  "nullable": false,
+                  "comment": "Version of the JSON schema"
                 },
                 {
-                  "name": "LOAD_DATE",
-                  "type": "DATE",
-                  "comment": "Date the record was loaded"
+                  "name": "_STG_FILE_NAME",
+                  "type": "VARCHAR(500)",
+                  "nullable": true,
+                  "comment": "Audit - Source stage file name"
+                },
+                {
+                  "name": "_STG_FILE_LOAD_TS",
+                  "type": "TIMESTAMP_NTZ",
+                  "nullable": true,
+                  "comment": "Audit - Stage file load timestamp"
+                },
+                {
+                  "name": "_STG_FILE_MD5",
+                  "type": "VARCHAR(32)",
+                  "nullable": true,
+                  "comment": "Audit - MD5 hash of the stage file"
+                },
+                {
+                  "name": "_COPY_DATA_TS",
+                  "type": "TIMESTAMP_NTZ",
+                  "nullable": true,
+                  "comment": "Audit - Timestamp when data was copied"
                 }
-              ]
+              ],
+              "primary_key": {
+                "keys": [
+                  "ID"
+                ]
+              }
             }
           },
           "streams": {

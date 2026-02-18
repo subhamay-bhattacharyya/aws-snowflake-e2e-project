@@ -122,17 +122,28 @@ output "stages" {
   }
 }
 
-# output "tables" {
-#   description = "Map of table names to their details"
-#   value = {
-#     for k, v in snowflake_table.this : k => {
-#       name     = v.name
-#       database = v.database
-#       schema   = v.schema
-#       comment  = v.comment
-#     }
-#   }
-# }
+output "tables" {
+  description = "Map of table names to their details"
+  value = {
+    for k, v in var.table_configs : k => {
+      name                 = module.table.table_names[k]
+      fully_qualified_name = module.table.table_fully_qualified_names[k]
+      database             = module.table.table_databases[k]
+      schema               = module.table.table_schemas[k]
+      table_type           = module.table.table_types[k]
+      columns = [
+        for col in v.columns : {
+          name          = col.name
+          type          = col.type
+          nullable      = lookup(col, "nullable", true)
+          comment       = lookup(col, "comment", null)
+          autoincrement = lookup(col, "autoincrement", null)
+        }
+      ]
+      comment = lookup(v, "comment", "")
+    }
+  }
+}
 
 # output "snowpipes" {
 #   description = "Map of snowpipe names to their details"
