@@ -3,7 +3,7 @@
 ############ S3 Bucket Outputs ############################
 output "s3_bucket_name" {
   description = "S3 bucket name used for static website"
-  value       = module.s3.name
+  value       = module.s3.bucket_id
 }
 output "s3_bucket_region" {
   description = "S3 bucket region"
@@ -20,15 +20,20 @@ output "s3_versioning_status" {
 ############ IAM Role Outputs ############################
 output "iam_role_arn" {
   description = "IAM role ARN for Snowflake storage integration"
-  value       = module.iam_role.iam_role_arn
+  value       = module.iam_role.role_arn
+}
+
+output "iam_role_name" {
+  description = "IAM role name for Snowflake storage integration"
+  value       = module.iam_role.role_name
 }
 ############ IAM Role Final (Phase 3) Outputs ############################
-output "trust_policy_updated" {
-  description = "Whether the trust policy was updated"
-  value       = module.iam_role_final.trust_policy_updated
-}
-output "trust_policy" {
-  description = "The trust policy that was applied."
-  value       = module.iam_role_final.trust_policy
-}
+# output "trust_policy_updated" {
+#   description = "Whether the trust policy was updated"
+#   value       = module.iam_role_final.trust_policy_updated
+# }
+# output "trust_policy" {
+#   description = "The trust policy that was applied."
+#   value       = module.iam_role_final.trust_policy
+# }
 

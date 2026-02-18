@@ -214,47 +214,84 @@ grep -v "BEGIN PUBLIC" snowflake_key.pub | grep -v "END PUBLIC" | tr -d '\n'
 Run this SQL in Snowflake (replace `YOUR_PUBLIC_KEY_HERE` with the output from Step 1):
 
 ```sql
--- =========================================================
--- Create Service Account for GitHub Actions
--- =========================================================
+-- ============================================================================
+-- Snowflake: GitHub Actions Service User + Core Automation Roles (Hardened)
+--
+-- Creates:
+--   • User: GITHUB_ACTIONS_USER (key-pair auth; default role PUBLIC; no default WH)
+--   • Roles:
+--       - PLATFORM_DB_OWNER   (CREATE DATABASE)
+--       - DATA_OBJECT_ADMIN   (no privileges granted here; typically schema-scoped later)
+--       - INGEST_ADMIN        (no privileges granted here; typically integration/stage/pipe scoped later)
+--       - WAREHOUSE_ADMIN     (CREATE WAREHOUSE)
+--   • Grants all roles to the GitHub Actions user
+--
+-- Run as: SECURITYADMIN (recommended)
+-- Replace:
+--   - RSA_PUBLIC_KEY value below
+-- ============================================================================
 
--- Create dedicated service account
-CREATE USER IF NOT EXISTS GH_ACTIONS_USER
-  RSA_PUBLIC_KEY = 'YOUR_PUBLIC_KEY_HERE'
-  DEFAULT_ROLE = SYSADMIN
-  DEFAULT_WAREHOUSE = COMPUTE_WH
+USE ROLE SECURITYADMIN;
+
+-- ----------------------------------------------------------------------------
+-- 1) Create Roles
+-- ----------------------------------------------------------------------------
+CREATE ROLE IF NOT EXISTS PLATFORM_DB_OWNER;
+CREATE ROLE IF NOT EXISTS DATA_OBJECT_ADMIN;
+CREATE ROLE IF NOT EXISTS INGEST_ADMIN;
+CREATE ROLE IF NOT EXISTS WAREHOUSE_ADMIN;
+
+-- ----------------------------------------------------------------------------
+-- 2) Grant Account-level Privileges (only where applicable)
+-- ----------------------------------------------------------------------------
+
+USE ROLE ACCOUNTADMIN;
+-- PLATFORM_DB_OWNER: create databases (account-level)
+GRANT CREATE DATABASE ON ACCOUNT TO ROLE PLATFORM_DB_OWNER;
+
+
+-- WAREHOUSE_ADMIN: create warehouses (account-level)
+GRANT CREATE WAREHOUSE ON ACCOUNT TO ROLE WAREHOUSE_ADMIN;
+
+-- Optional but recommended: allow visibility into account/warehouse usage
+GRANT MONITOR USAGE ON ACCOUNT TO ROLE WAREHOUSE_ADMIN;
+GRANT USAGE ON WAREHOUSE UTIL_WH TO ROLE WAREHOUSE_ADMIN;
+GRANT CREATE INTEGRATION ON ACCOUNT TO ROLE INGEST_ADMIN;
+
+-- NOTE:
+-- DATA_OBJECT_ADMIN and INGEST_ADMIN are intentionally left with NO privileges here.
+-- They should be granted schema/database/integration-specific privileges later in Terraform,
+-- once the target database/schema/integrations exist (JSON-driven).
+
+-- ----------------------------------------------------------------------------
+-- 3) Create GitHub Actions Service User (Key-Pair Auth Only)
+-- ----------------------------------------------------------------------------
+CREATE USER IF NOT EXISTS GITHUB_ACTIONS_USER
+  LOGIN_NAME           = 'GITHUB_ACTIONS_USER'
+  DISPLAY_NAME         = 'GitHub Actions Service User'
+  DEFAULT_ROLE         = PUBLIC
+  DEFAULT_WAREHOUSE    = NULL
   MUST_CHANGE_PASSWORD = FALSE
-  COMMENT = 'Service account for GitHub Actions CI/CD deployments';
+  DISABLED             = FALSE
+  RSA_PUBLIC_KEY       = 'YOUR_PUBLIC_KEY_HERE';
 
--- Grant SYSADMIN role (for DDL and grant operations)
-GRANT ROLE SYSADMIN TO USER GH_ACTIONS_USER;
+-- ----------------------------------------------------------------------------
+-- 4) Grant Roles to GitHub Actions User (NOT default)
+-- ----------------------------------------------------------------------------
+GRANT ROLE PLATFORM_DB_OWNER TO USER GITHUB_ACTIONS_USER;
+GRANT ROLE DATA_OBJECT_ADMIN TO USER GITHUB_ACTIONS_USER;
+GRANT ROLE INGEST_ADMIN      TO USER GITHUB_ACTIONS_USER;
+GRANT ROLE WAREHOUSE_ADMIN   TO USER GITHUB_ACTIONS_USER;
 
--- Grant usage on warehouses
-GRANT USAGE ON WAREHOUSE UTIL_WH TO ROLE SYSADMIN;
-GRANT USAGE ON WAREHOUSE COMPUTE_WH TO ROLE SYSADMIN;
-
--- Grant usage on the utility database
-GRANT USAGE ON DATABASE UTIL_DB TO ROLE SYSADMIN;
-GRANT USAGE ON SCHEMA UTIL_DB.UTIL_SCHEMA TO ROLE SYSADMIN;
-
--- Grant create privileges for the migration table
-GRANT CREATE TABLE ON SCHEMA UTIL_DB.UTIL_SCHEMA TO ROLE SYSADMIN;
-
--- Grant all privileges on the migration table (if it already exists)
-GRANT ALL PRIVILEGES ON TABLE UTIL_DB.UTIL_SCHEMA.DDL_MIGRATION_HISTORY TO ROLE SYSADMIN;
-
--- If the user needs to create the database/schema (first run)
-GRANT CREATE DATABASE ON ACCOUNT TO ROLE SYSADMIN;
-
--- Verify the user's role
-DESC USER GH_ACTIONS_USER;
-
--- See what roles the user has
-SHOW GRANTS TO USER GH_ACTIONS_USER;
-
--- See what the SYSADMIN role can do
-SHOW GRANTS TO ROLE SYSADMIN;
-
+-- ----------------------------------------------------------------------------
+-- 5) Verification
+-- ----------------------------------------------------------------------------
+SHOW USERS LIKE 'GITHUB_ACTIONS_USER';
+SHOW GRANTS TO USER GITHUB_ACTIONS_USER;
+SHOW GRANTS TO ROLE PLATFORM_DB_OWNER;
+SHOW GRANTS TO ROLE DATA_OBJECT_ADMIN;
+SHOW GRANTS TO ROLE INGEST_ADMIN;
+SHOW GRANTS TO ROLE WAREHOUSE_ADMIN;
 ```
 
 **Security Notes:**
@@ -274,7 +311,7 @@ Set up GitHub Actions authentication. Navigate to **Settings → Secrets and var
 |---------------|-------------|---------|
 | `SNOWFLAKE_ORGANIZATION_NAME` | Snowflake organization name | `AGXUOKJ` |
 | `SNOWFLAKE_ACCOUNT_NAME` | Snowflake account name | `JKC15404` |
-| `SNOWFLAKE_USER` | Service account username | `GH_ACTIONS_USER` |
+| `SNOWFLAKE_USER` | Service account username | `GITHUB_ACTIONS_USER` |
 | `SNOWFLAKE_ROLE` | Snowflake role for deployments | `SYSADMIN` |
 | `AWS_REGION` | AWS region for resources | `us-east-1` |
 | `TF_LINT_VER` | TFLint version (optional) | `v0.50.0` |

@@ -1,0 +1,31 @@
+[0m[1mdata.aws_kms_key.kms[0]: Reading...[0m[0m
+[0m[1mdata.aws_caller_identity.current: Reading...[0m[0m
+[0m[1mdata.aws_caller_identity.current: Read complete after 0s [id=439289764204][0m
+[0m[1mmodule.aws.module.s3.data.aws_kms_alias.this[0]: Reading...[0m[0m
+[0m[1mmodule.aws.module.s3.aws_s3_bucket.this: Refreshing state... [id=e2eproj-aws-snowflake-project-devl-us-east-1][0m
+[0m[1mdata.aws_kms_key.kms[0]: Read complete after 0s [id=5b49460e-f450-4664-9001-c0bdedd51abb][0m
+[0m[1mmodule.aws.module.s3.data.aws_kms_alias.this[0]: Read complete after 0s [id=arn:aws:kms:us-east-1:439289764204:alias/SB-KMS][0m
+[0m[1mmodule.aws.module.s3.aws_s3_bucket_public_access_block.this: Refreshing state... [id=e2eproj-aws-snowflake-project-devl-us-east-1][0m
+[0m[1mmodule.aws.module.s3.aws_s3_bucket_versioning.this: Refreshing state... [id=e2eproj-aws-snowflake-project-devl-us-east-1][0m
+[0m[1mmodule.aws.module.s3.aws_s3_bucket_server_side_encryption_configuration.this[0]: Refreshing state... [id=e2eproj-aws-snowflake-project-devl-us-east-1][0m
+[0m[1mmodule.aws.module.s3.aws_s3_object.bucket_keys["raw-data/json"]: Refreshing state... [id=e2eproj-aws-snowflake-project-devl-us-east-1/raw-data/json/][0m
+[0m[1mmodule.aws.module.s3.aws_s3_object.bucket_keys["raw-data/csv"]: Refreshing state... [id=e2eproj-aws-snowflake-project-devl-us-east-1/raw-data/csv/][0m
+[0m[1mmodule.aws.module.s3.aws_s3_bucket_policy.this[0]: Refreshing state... [id=e2eproj-aws-snowflake-project-devl-us-east-1][0m
+[0m[1mmodule.aws.module.iam_role.aws_iam_role.this: Refreshing state... [id=e2eproj-snowflake-external-stage-role-devl][0m
+[0m[1mmodule.aws.module.iam_role.aws_iam_role_policy.inline["SnowflakeS3ObjectAccessPolicy"]: Refreshing state... [id=e2eproj-snowflake-external-stage-role-devl:SnowflakeS3ObjectAccessPolicy][0m
+[0m[1mmodule.aws.module.iam_role.aws_iam_role_policy.inline["SnowflakeS3ListBucketPolicy"]: Refreshing state... [id=e2eproj-snowflake-external-stage-role-devl:SnowflakeS3ListBucketPolicy][0m
+[0m[1mmodule.aws.module.iam_role.aws_iam_role_policy.inline["SnowflakeKMSAccessPolicy"]: Refreshing state... [id=e2eproj-snowflake-external-stage-role-devl:SnowflakeKMSAccessPolicy][0m
+[0m[1mmodule.snowflake.module.database_schemas.snowflake_database.this["aqi_database"]: Refreshing state... [id=E2EPROJ_AQI_DATABASE][0m
+[0m[1mmodule.snowflake.module.warehouse.snowflake_warehouse.this["load_wh"]: Refreshing state... [id=E2EPROJ_LOAD_WH][0m
+[0m[1mmodule.snowflake.module.warehouse.snowflake_warehouse.this["transform_wh"]: Refreshing state... [id=E2EPROJ_TRANSFORM_WH][0m
+[0m[1mmodule.snowflake.module.warehouse.snowflake_warehouse.this["adhoc_wh"]: Refreshing state... [id=E2EPROJ_ADHOC_WH][0m
+[0m[1mmodule.snowflake.module.warehouse.snowflake_warehouse.this["streamlit_wh"]: Refreshing state... [id=E2EPROJ_STREAMLIT_WH][0m
+[0m[1mmodule.snowflake.module.database_schemas.snowflake_schema.this["aqi_database.GOLD"]: Refreshing state... [id="E2EPROJ_AQI_DATABASE"."GOLD"][0m
+[0m[1mmodule.snowflake.module.database_schemas.snowflake_schema.this["aqi_database.SILVER"]: Refreshing state... [id="E2EPROJ_AQI_DATABASE"."SILVER"][0m
+[0m[1mmodule.snowflake.module.database_schemas.snowflake_schema.this["aqi_database.BRONZE"]: Refreshing state... [id="E2EPROJ_AQI_DATABASE"."BRONZE"][0m
+[0m[1mmodule.snowflake.module.database_schemas.snowflake_schema.this["aqi_database.STREAMLIT"]: Refreshing state... [id="E2EPROJ_AQI_DATABASE"."STREAMLIT"][0m
+
+[0m[1m[32mNo changes.[0m[1m Your infrastructure matches the configuration.[0m
+
+[0mTerraform has compared your real infrastructure against your configuration
+and found no differences, so no changes are needed.

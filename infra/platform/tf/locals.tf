@@ -8,11 +8,14 @@ data "aws_caller_identity" "current" {}
 
 # Compute KMS key alias first (no dependency on s3_config)
 locals {
-  kms_key_alias_raw = jsondecode(file("${path.module}/${var.aws_config_path}")).aws.s3.kms_key_alias
-  kms_key_alias     = startswith(local.kms_key_alias_raw, "alias/") ? local.kms_key_alias_raw : "alias/${local.kms_key_alias_raw}"
+  kms_key_alias_raw = try(jsondecode(file("${path.module}/${var.aws_config_path}")).aws.s3.kms_key_alias, null)
+  kms_key_alias     = local.kms_key_alias_raw != null ? (startswith(local.kms_key_alias_raw, "alias/") ? local.kms_key_alias_raw : "alias/${local.kms_key_alias_raw}") : null
 }
 
-data "aws_kms_key" "kms" { key_id = local.kms_key_alias }
+data "aws_kms_key" "kms" {
+  count  = local.kms_key_alias != null ? 1 : 0
+  key_id = local.kms_key_alias
+}
 
 locals {
   # current_region = data.aws_region.current.id
@@ -52,10 +55,10 @@ locals {
   # S3 Configuration
   s3_config = {
     bucket_name   = "${var.project_code}-${local.aws_config.s3.bucket_name}-${var.environment}-${local.aws_config.region}"
-    versioning    = local.aws_config.s3.versioning
-    kms_key_alias = local.kms_key_alias
-    kms_key_arn   = data.aws_kms_key.kms.arn
-    bucket_keys   = lookup(local.aws_config.s3, "bucket_keys", [])
+    versioning    = local.aws_config.s3.versioning == true ? true : false
+    kms_key_alias = local.kms_key_alias != null ? replace(local.kms_key_alias, "alias/", "") : null
+    sse_algorithm = local.kms_key_alias != null ? "aws:kms" : null
+    bucket_keys   = try(local.aws_config.s3.bucket_keys, null)
     bucket_policy = templatefile("${path.module}/../../aws/tf/templates/bucket-policy/s3-bucket-policy.tpl", {
       aws_account_id = data.aws_caller_identity.current.account_id
       bucket_name    = "${var.project_code}-${local.aws_config.s3.bucket_name}-${var.environment}-${local.aws_config.region}"
@@ -64,10 +67,29 @@ locals {
 
   # IAM Role Configuration
   iam_role_config = {
-    role_name          = "${var.project_code}-snowflake-storage-integration-role-${var.environment}"
+    name               = "${var.project_code}-${local.aws_config.iam.role_name}-${var.environment}"
     assume_role_policy = local.assume_role_policy
-    s3_bucket_arn      = "arn:aws:s3:::${var.project_code}-${local.aws_config.s3.bucket_name}-${var.environment}-${local.aws_config.region}"
-    kms_key_arn        = data.aws_kms_key.kms.arn
+    s3_bucket_arn      = "arn:aws:s3:::${local.s3_config.bucket_name}"
+    kms_key_arn        = local.kms_key_alias != null ? data.aws_kms_key.kms[0].arn : null
+    inline_policies = [
+      for policy in local.aws_config.iam.policies : {
+        name = policy.name
+        policy = jsonencode({
+          Version = "2012-10-17"
+          Statement = [{
+            Sid    = policy.sid
+            Effect = policy.effect
+            Action = policy.action
+            Resource = (
+              policy.resource == "s3-bucket-arn" ? "arn:aws:s3:::${local.s3_config.bucket_name}" :
+              policy.resource == "s3-bucket-arn/*" ? "arn:aws:s3:::${local.s3_config.bucket_name}/*" :
+              policy.resource == "kms-key-arn" ? (local.kms_key_alias != null ? data.aws_kms_key.kms[0].arn : "*") :
+              policy.resource
+            )
+          }]
+        })
+      }
+    ]
   }
 
   # ============================================================================
@@ -76,136 +98,159 @@ locals {
 
   # Warehouses - add optional prefix to names
   warehouses = {
-    for key, wh in local.snowflake_config.warehouses : key => merge(wh, {
+    for key, wh in lookup(local.snowflake_config, "warehouses", {}) : key => merge(wh, {
       name = var.project_code != "" ? upper("${var.project_code}_${wh.name}") : wh.name
     })
   }
 
-  # Databases - extract only database-level attributes with optional prefix
-  databases = {
-    for key, db in local.snowflake_config.databases : key => {
+  # Databases with schemas - nested structure
+  database_schemas = {
+    for db_key, db in lookup(local.snowflake_config, "databases", {}) : db_key => {
       name    = var.project_code != "" ? upper("${var.project_code}_${db.name}") : db.name
       comment = lookup(db, "comment", "")
+      grants = {
+        usage_roles = [
+          var.data_object_provisioner_role,
+          var.ingest_object_provisioner_role
+        ]
+      }
+      schemas = [
+        for schema in lookup(db, "schemas", []) : {
+          name    = schema.name
+          comment = lookup(schema, "comment", "")
+          grants = {
+            usage_roles              = [var.data_object_provisioner_role, var.ingest_object_provisioner_role]
+            create_file_format_roles = [var.data_object_provisioner_role]
+            create_stage_roles       = [var.ingest_object_provisioner_role]
+            create_table_roles       = [var.data_object_provisioner_role]
+            create_pipe_roles        = [var.ingest_object_provisioner_role]
+          }
+        }
+      ]
     }
   }
 
-  # Schemas - flatten from all databases into a map
-  schemas = {
-    for item in flatten([
-      for db_key, db in local.snowflake_config.databases : [
-        for schema in lookup(db, "schemas", []) : {
-          key      = "${db_key}_${lower(schema.name)}"
-          database = var.project_code != "" ? upper("${var.project_code}_${db.name}") : db.name
-          name     = schema.name
-          comment  = lookup(schema, "comment", "")
-        }
-      ]
-    ]) : item.key => item
-  }
-
-  # File Formats - flatten from all databases into a map with normalized structure
+  # File Formats - flatten from all databases/schemas into a map with normalized structure
+  # Only pass attributes that are explicitly set in config, let module defaults handle the rest
   file_formats = {
     for item in flatten([
-      for db_key, db in local.snowflake_config.databases : [
-        for ff_key, ff in lookup(db, "file_formats", {}) : {
-          key         = "${db_key}_${ff_key}"
-          name        = ff.name
-          type        = ff.type
-          database    = var.project_code != "" ? upper("${var.project_code}_${db.name}") : db.name
-          schema      = "UTIL"
-          comment     = lookup(ff, "comment", "")
-          compression = lookup(ff, "compression", "AUTO")
-          # CSV options
-          field_delimiter                = lookup(ff, "field_delimiter", ",")
-          record_delimiter               = lookup(ff, "record_delimiter", "\n")
-          skip_header                    = lookup(ff, "skip_header", 0)
-          field_optionally_enclosed_by   = lookup(ff, "field_optionally_enclosed_by", null)
-          trim_space                     = lookup(ff, "trim_space", false)
-          error_on_column_count_mismatch = lookup(ff, "error_on_column_count_mismatch", true)
-          escape                         = lookup(ff, "escape", null)
-          escape_unenclosed_field        = lookup(ff, "escape_unenclosed_field", null)
-          date_format                    = lookup(ff, "date_format", "AUTO")
-          timestamp_format               = lookup(ff, "timestamp_format", "AUTO")
-          null_if                        = lookup(ff, "null_if", [])
-          # JSON options
-          enable_octal       = lookup(ff, "enable_octal", false)
-          allow_duplicate    = lookup(ff, "allow_duplicate", false)
-          strip_outer_array  = lookup(ff, "strip_outer_array", false)
-          strip_null_values  = lookup(ff, "strip_null_values", false)
-          ignore_utf8_errors = lookup(ff, "ignore_utf8_errors", false)
-        }
+      for db_key, db in lookup(local.snowflake_config, "databases", {}) : [
+        for schema in lookup(db, "schemas", []) : [
+          for ff_key, ff in lookup(schema, "file_formats", {}) : merge(
+            {
+              name        = ff.name
+              format_type = ff.type
+              database    = var.project_code != "" ? upper("${var.project_code}_${db.name}") : db.name
+              schema      = schema.name
+            },
+            # Only include optional attributes if they are explicitly defined in config
+            lookup(ff, "comment", null) != null ? { comment = ff.comment } : {},
+            lookup(ff, "compression", null) != null ? { compression = ff.compression } : {},
+            # CSV options
+            lookup(ff, "field_delimiter", null) != null ? { field_delimiter = ff.field_delimiter } : {},
+            lookup(ff, "record_delimiter", null) != null ? { record_delimiter = ff.record_delimiter } : {},
+            lookup(ff, "skip_header", null) != null ? { skip_header = ff.skip_header } : {},
+            lookup(ff, "field_optionally_enclosed_by", null) != null ? { field_optionally_enclosed_by = ff.field_optionally_enclosed_by } : {},
+            lookup(ff, "trim_space", null) != null ? { trim_space = ff.trim_space } : {},
+            lookup(ff, "error_on_column_count_mismatch", null) != null ? { error_on_column_count_mismatch = ff.error_on_column_count_mismatch } : {},
+            lookup(ff, "escape", null) != null ? { escape = ff.escape } : {},
+            lookup(ff, "escape_unenclosed_field", null) != null ? { escape_unenclosed_field = ff.escape_unenclosed_field } : {},
+            lookup(ff, "date_format", null) != null ? { date_format = ff.date_format } : {},
+            lookup(ff, "timestamp_format", null) != null ? { timestamp_format = ff.timestamp_format } : {},
+            lookup(ff, "null_if", null) != null ? { null_if = ff.null_if } : {},
+            # JSON options
+            lookup(ff, "enable_octal", null) != null ? { enable_octal = ff.enable_octal } : {},
+            lookup(ff, "allow_duplicate", null) != null ? { allow_duplicate = ff.allow_duplicate } : {},
+            lookup(ff, "strip_outer_array", null) != null ? { strip_outer_array = ff.strip_outer_array } : {},
+            lookup(ff, "strip_null_values", null) != null ? { strip_null_values = ff.strip_null_values } : {},
+            lookup(ff, "ignore_utf8_errors", null) != null ? { ignore_utf8_errors = ff.ignore_utf8_errors } : {},
+          )
+        ]
       ]
-    ]) : item.key => item
+    ]) : item.name => item
   }
 
-  # Storage Integrations - flatten from all databases into a map
+  # Storage Integrations - read from top level (account-level object)
   storage_integrations = {
-    for item in flatten([
-      for db_key, db in local.snowflake_config.databases : [
-        for si_key, si in lookup(db, "storage_integrations", {}) : {
-          key                       = "${db_key}_${si_key}"
-          name                      = var.project_code != "" ? upper("${var.project_code}_${si.name}") : si.name
-          storage_provider          = si.storage_provider
-          storage_aws_role_arn      = local.iam_role_config.role_name != "" ? "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.iam_role_config.role_name}" : si.storage_aws_role_arn
-          storage_allowed_locations = [for loc in lookup(si, "storage_allowed_locations", []) : "s3://${local.s3_config.bucket_name}/${loc}"]
-          storage_blocked_locations = lookup(si, "storage_blocked_locations", [])
-          enabled                   = lookup(si, "enabled", true)
-          comment                   = lookup(si, "comment", "")
-        }
-      ]
-    ]) : item.key => item
+    for si_key, si in lookup(local.snowflake_config, "storage_integrations", {}) : si_key => {
+      name                      = var.project_code != "" ? upper("${var.project_code}_${si.name}") : si.name
+      storage_provider          = si.storage_provider
+      storage_aws_role_arn      = local.iam_role_config.name != "" ? "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.iam_role_config.name}" : lookup(si, "storage_aws_role_arn", "")
+      storage_allowed_locations = [for loc in lookup(si, "storage_allowed_locations", []) : "s3://${local.s3_config.bucket_name}/${loc}"]
+      storage_blocked_locations = lookup(si, "storage_blocked_locations", [])
+      enabled                   = lookup(si, "enabled", true)
+      comment                   = lookup(si, "comment", "")
+    }
   }
 
-  # Stages - flatten from all databases into a map
+  # Stages - flatten from all databases/schemas into a map
+  # Structure differs based on stage_type (internal vs external)
   stages = {
     for item in flatten([
-      for db_key, db in local.snowflake_config.databases : [
-        for stage_key, stage in lookup(db, "stages", {}) : {
-          key      = "${db_key}_${stage_key}"
-          name     = stage.name
-          database = var.project_code != "" ? upper("${var.project_code}_${db.name}") : db.name
-          schema   = lookup(stage, "schema", "UTIL")
-          # Replace "the-s3-bucket" placeholder with actual S3 bucket name
-          url = lookup(stage, "url", null) != null ? replace(stage.url, "the-s3-bucket", local.s3_config.bucket_name) : null
-          # Only add prefix if storage_integration is defined and not empty
-          storage_integration = lookup(stage, "storage_integration", null) != null && lookup(stage, "storage_integration", "") != "" ? (var.project_code != "" ? upper("${var.project_code}_${stage.storage_integration}") : stage.storage_integration) : null
-          file_format         = lookup(stage, "file_format", null)
-          comment             = lookup(stage, "comment", "")
-        }
+      for db_key, db in lookup(local.snowflake_config, "databases", {}) : [
+        for schema in lookup(db, "schemas", []) : [
+          for stage_key, stage in lookup(schema, "stages", {}) : merge(
+            {
+              name       = stage.name
+              database   = var.project_code != "" ? upper("${var.project_code}_${db.name}") : db.name
+              schema     = schema.name
+              stage_type = lookup(stage, "stage_type", "internal")
+              comment    = lookup(stage, "comment", "")
+              file_format = lookup(stage, "file_format", null) != null ? (
+                upper(lookup(stage, "file_format", "")) == "JSON" ? "JSON_FILE_FORMAT" :
+                upper(lookup(stage, "file_format", "")) == "CSV" ? "CSV_FILE_FORMAT" :
+                lookup(stage, "file_format", null)
+              ) : null
+            },
+            # Add internal stage specific attributes
+            lookup(stage, "stage_type", "internal") == "internal" ? {
+              directory_enabled = lookup(stage, "directory_enabled", false)
+            } : {},
+            # Add external stage specific attributes only if stage_type is external
+            lookup(stage, "stage_type", "internal") == "external" ? {
+              url                 = lookup(stage, "url", null) != null ? replace(stage.url, "the-s3-bucket", local.s3_config.bucket_name) : "s3://${local.s3_config.bucket_name}/"
+              storage_integration = lookup(stage, "storage_integration", null) != null && lookup(stage, "storage_integration", "") != "" ? (var.project_code != "" ? upper("${var.project_code}_${stage.storage_integration}") : stage.storage_integration) : (var.project_code != "" ? upper("${var.project_code}_S3_STORAGE_INTEGRATION") : "S3_STORAGE_INTEGRATION")
+            } : {}
+          )
+        ]
       ]
-    ]) : item.key => item
+    ]) : item.name => item
   }
 
-  # Tables - flatten from all databases into a map
+  # Tables - flatten from all databases/schemas into a map
   tables = {
     for item in flatten([
-      for db_key, db in local.snowflake_config.databases : [
-        for table_key, table in lookup(db, "tables", {}) : {
-          key      = "${db_key}_${table_key}"
-          name     = table.name
-          database = var.project_code != "" ? upper("${var.project_code}_${db.name}") : db.name
-          schema   = lookup(table, "schema", "RAW_DATA")
-          columns  = table.columns
-          comment  = lookup(table, "comment", "")
-        }
+      for db_key, db in lookup(local.snowflake_config, "databases", {}) : [
+        for schema in lookup(db, "schemas", []) : [
+          for table_key, table in lookup(schema, "tables", {}) : {
+            key      = "${db_key}_${lower(schema.name)}_${table_key}"
+            name     = table.name
+            database = var.project_code != "" ? upper("${var.project_code}_${db.name}") : db.name
+            schema   = schema.name
+            columns  = table.columns
+            comment  = lookup(table, "comment", "")
+          }
+        ]
       ]
     ]) : item.key => item
   }
 
-  # Snowpipes - flatten from all databases into a map
+  # Snowpipes - flatten from all databases/schemas into a map
   snowpipes = {
     for item in flatten([
-      for db_key, db in local.snowflake_config.databases : [
-        for pipe_key, pipe in lookup(db, "snowpipes", {}) : {
-          key      = "${db_key}_${pipe_key}"
-          name     = var.project_code != "" ? upper("${var.project_code}_${pipe.name}") : pipe.name
-          database = var.project_code != "" ? upper("${var.project_code}_${db.name}") : db.name
-          schema   = lookup(pipe, "schema", "RAW_DATA")
-          # Replace database/schema references in copy_statement with prefixed names
-          copy_statement = var.project_code != "" ? replace(pipe.copy_statement, db.name, upper("${var.project_code}_${db.name}")) : pipe.copy_statement
-          auto_ingest    = lookup(pipe, "auto_ingest", true)
-          comment        = lookup(pipe, "comment", "")
-        }
+      for db_key, db in lookup(local.snowflake_config, "databases", {}) : [
+        for schema in lookup(db, "schemas", []) : [
+          for pipe_key, pipe in lookup(schema, "snowpipes", {}) : {
+            key      = "${db_key}_${lower(schema.name)}_${pipe_key}"
+            name     = var.project_code != "" ? upper("${var.project_code}_${pipe.name}") : pipe.name
+            database = var.project_code != "" ? upper("${var.project_code}_${db.name}") : db.name
+            schema   = schema.name
+            # Replace database/schema references in copy_statement with prefixed names
+            copy_statement = var.project_code != "" ? replace(pipe.copy_statement, db.name, upper("${var.project_code}_${db.name}")) : pipe.copy_statement
+            auto_ingest    = lookup(pipe, "auto_ingest", true)
+            comment        = lookup(pipe, "comment", "")
+          }
+        ]
       ]
     ]) : item.key => item
   }

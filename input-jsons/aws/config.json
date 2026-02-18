@@ -3,24 +3,53 @@
     "region": "us-east-1",
     "s3": {
       "bucket_name": "aws-snowflake-project",
-      "bucket_keys": ["raw-data/csv","raw-data/json"],
+      "bucket_keys": [
+        "raw-data/csv",
+        "raw-data/json"
+      ],
       "versioning": true,
       "kms_key_alias": "SB-KMS"
     },
     "iam": {
-      "role_name": "snowflake-external-stage-role"
+      "role_name": "snowflake-external-stage-role",
+      "policies": [
+        {
+          "name": "SnowflakeS3ListBucketPolicy",
+          "action": [
+            "s3:ListBucket",
+            "s3:GetBucketLocation"
+          ],
+          "effect": "Allow",
+          "resource": "s3-bucket-arn",
+          "sid": "SnowflakeS3ListBucket"
+        },
+        {
+          "name": "SnowflakeS3ObjectAccessPolicy",
+          "action": [
+            "s3:GetObject",
+            "s3:GetObjectVersion",
+            "s3:PutObject",
+            "s3:DeleteObject"
+          ],
+          "effect": "Allow",
+          "resource": "s3-bucket-arn/*",
+          "sid": "SnowflakeS3ObjectAccess"
+        },
+        {
+          "name": "SnowflakeKMSAccessPolicy",
+          "action": [
+            "kms:Encrypt",
+            "kms:Decrypt",
+            "kms:ReEncrypt*",
+            "kms:GenerateDataKey*",
+            "kms:DescribeKey"
+          ],
+          "effect": "Allow",
+          "resource": "kms-key-arn",
+          "sid": "SnowflakeKMSAccess"
+        }
+      ]
     }
-  },
-  "snowflake": {
-    "organization_name": "",
-    "account_name": "",
-    "role": "SYSADMIN",
-    "warehouses": [],
-    "databases": [],
-    "file_formats": [],
-    "storage_integrations": [],
-    "stages": [],
-    "snowpipes": []
   },
   "trust": {
     "snowflake_principal_arn": "",

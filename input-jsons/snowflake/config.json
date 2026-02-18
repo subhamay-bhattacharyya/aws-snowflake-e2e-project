@@ -1,9 +1,18 @@
 {
+  "storage_integrations": {
+    "s3": {
+      "name": "S3_STORAGE_INTEGRATION",
+      "storage_provider": "S3",
+      "storage_allowed_locations": [""],
+      "enabled": true,
+      "comment": "Storage integration for S3 bucket access"
+    }
+  },
   "warehouses": {
     "load_wh": {
       "name": "LOAD_WH",
-      "comment": "This warehouse will be used for loading all the JSON files",
-      "warehouse_size": "X-SMALL",
+      "comment": "Dedicated ingestion warehouse for loading files from stages into Bronze tables using COPY operations and batch loads.",
+      "warehouse_size": "MEDIUM",
       "auto_resume": true,
       "auto_suspend": 60,
       "enable_query_acceleration": false,
@@ -15,7 +24,7 @@
     },
     "transform_wh": {
       "name": "TRANSFORM_WH",
-      "comment": "This warehouse will be used for transform activities",
+      "comment": "ETL/ELT warehouse for heavy SQL transformations, merges, joins, and pipeline processing from Bronze → Silver → Gold.",
       "warehouse_size": "X-SMALL",
       "auto_resume": true,
       "auto_suspend": 60,
@@ -28,7 +37,7 @@
     },
     "streamlit_wh": {
       "name": "STREAMLIT_WH",
-      "comment": "This warehouse will be used for running Streamlit queries",
+      "comment": "Lightweight warehouse optimized for low-latency dashboard queries and interactive Streamlit app usage.",
       "warehouse_size": "X-SMALL",
       "auto_resume": true,
       "auto_suspend": 60,
@@ -41,7 +50,7 @@
     },
     "adhoc_wh": {
       "name": "ADHOC_WH",
-      "comment": "This warehouse will be used for any adhoc purpose",
+      "comment": "Development and sandbox warehouse for ad-hoc queries, experimentation, troubleshooting, and testing.",
       "warehouse_size": "X-SMALL",
       "auto_resume": true,
       "auto_suspend": 60,
@@ -54,123 +63,202 @@
     }
   },
   "databases": {
-      "bronze": {
-      "name": "BRONZE",
-      "comment": "Bronze layer - Raw data ingestion from source systems",
+    "aqi_database": {
+      "name": "AQI_DATABASE",
+      "comment": "Central analytical database hosting ingestion, transformation, modeling, and presentation layers for the AQI platform.",
       "schemas": [
         {
-          "name": "RAW_DATA",
-          "comment": "Raw data from all source systems"
+          "name": "BRONZE",
+          "comment": "Raw - Landing zone for raw source data (JSON/CSV/Parquet). Minimal transformations. Supports replay and auditing.",
+          "stages": {
+            "raw_external_stg": {
+              "name": "RAW_EXTERNAL_STG",
+              "stage_type": "external",
+              "file_format": "JSON",
+              "comment": "External stage for storing incoming AQI raw files before COPY ingestion."
+            },
+            "raw_internal_stg": {
+              "name": "RAW_INTERNAL_STG",
+              "stage_type": "internal",
+              "file_format": "JSON",
+              "directory_enabled": true,
+              "comment": "Internal stage for temporary file storage and processing."
+            }
+          },
+          "file_formats": {
+            "json_file_format": {
+              "name": "JSON_FILE_FORMAT",
+              "type": "JSON",
+              "compression": "AUTO",
+              "enable_octal": false,
+              "allow_duplicate": false,
+              "strip_outer_array": false,
+              "strip_null_values": false,
+              "ignore_utf8_errors": false,
+              "comment": "JSON parsing configuration for raw ingestion."
+            }
+          },
+          "tables": {
+            "raw_aqi": {
+              "name": "RAW_AQI",
+              "comment": "Raw ingestion table storing AQI payloads as VARIANT with metadata columns.",
+              "columns": [
+                {
+                  "name": "DATA",
+                  "type": "VARIANT",
+                  "comment": "Raw AQI JSON payload exactly as received from source files"
+                },
+                {
+                  "name": "FILE_NAME",
+                  "type": "STRING",
+                  "comment": "Source file name from internal stage"
+                },
+                {
+                  "name": "LOAD_TS",
+                  "type": "TIMESTAMP",
+                  "comment": "Record ingestion timestamp"
+                },
+                {
+                  "name": "LOAD_DATE",
+                  "type": "DATE",
+                  "comment": "Date the record was loaded"
+                }
+              ]
+            }
+          },
+          "streams": {
+            "raw_aqi_stream": {
+              "name": "RAW_AQI_STREAM",
+              "source": "RAW_AQI",
+              "comment": "Captures incremental inserts/updates to trigger downstream task execution."
+            }
+          },
+          "tasks": {
+            "copy_air_quality_data": {
+              "name": "COPY_AIR_QUALITY_DATA",
+              "warehouse": "LOAD_WH",
+              "comment": "Scheduled COPY INTO from stage to bronze table."
+            },
+            "process_aqi_stream_task": {
+              "name": "PROCESS_AQI_STREAM_TASK",
+              "warehouse": "TRANSFORM_WH",
+              "comment": "Triggered by stream changes; runs transformations bronze → silver → gold."
+            },
+            "refresh_weather_data_task": {
+              "name": "REFRESH_WEATHER_DATA_TASK",
+              "warehouse": "TRANSFORM_WH",
+              "comment": "Periodic enrichment refresh task."
+            }
+          }
         },
         {
-          "name": "UTIL",
-          "comment": "Utility objects - file formats, stages, storage integrations"
-        }
-      ],
-      "file_formats": {
-        "csv": {
-          "name": "CSV_FILE_FORMAT",
-          "type": "CSV",
-          "compression": "AUTO",
-          "field_delimiter": ",",
-          "record_delimiter": "\\n",
-          "skip_header": 1,
-          "field_optionally_enclosed_by": "\"",
-          "trim_space": true,
-          "error_on_column_count_mismatch": false,
-          "escape": "NONE",
-          "escape_unenclosed_field": "\\",
-          "date_format": "AUTO",
-          "timestamp_format": "AUTO",
-          "null_if": ["NULL", "null", ""],
-          "comment": "Standard CSV file format with header"
+          "name": "SILVER",
+          "comment": "Cleansed - Standardized, deduplicated, and validated datasets ready for transformation.",
+          "dynamic_tables": {
+            "clean_aqi_dt": {
+              "name": "CLEAN_AQI_DT",
+              "comment": "Cleansed and validated AQI dataset auto-refreshed from bronze."
+            },
+            "clean_flatten_aqi_dt": {
+              "name": "CLEAN_FLATTEN_AQI_DT",
+              "comment": "Flattened/normalized structure for downstream joins."
+            }
+          }
         },
-        "json": {
-          "name": "JSON_FILE_FORMAT",
-          "type": "JSON",
-          "compression": "AUTO",
-          "enable_octal": false,
-          "allow_duplicate": false,
-          "strip_outer_array": false,
-          "strip_null_values": false,
-          "ignore_utf8_errors": false,
-          "comment": "Standard JSON file format"
-        }
-      },
-      "storage_integrations": {
-        "s3": {
-          "name": "S3_STORAGE_INTEGRATION",
-          "type": "EXTERNAL_STAGE",
-          "storage_provider": "S3",
-          "enabled": true,
-          "storage_allowed_locations": ["raw-data/json/", "raw-data/csv/"],
-          "storage_blocked_locations": [],
-          "comment": "S3 storage integration - allows access to the s3 bucket"
-        }
-      },
-      "stages": {
-        "external_s3_csv": {
-          "name": "S3_EXTERNAL_STAGE_CSV",
-          "schema": "UTIL",
-          "url": "s3://the-s3-bucket/raw-data/csv/",
-          "storage_integration": "S3_STORAGE_INTEGRATION",
-          "file_format": "CSV_FILE_FORMAT",
-          "comment": "External stage for S3 CSV data ingestion"
+        {
+          "name": "GOLD",
+          "comment": "Curated - Business-ready facts/dimensions and aggregated models optimized for analytics and BI.",
+          "tables": {
+            "weather_data": {
+              "name": "WEATHER_DATA",
+              "comment": "Weather enrichment dataset joined with AQI analytics.",
+              "columns": [
+                {
+                  "name": "CITY",
+                  "type": "STRING",
+                  "comment": "City name"
+                },
+                {
+                  "name": "OBSERVATION_DATE",
+                  "type": "DATE",
+                  "comment": "Date of weather observation"
+                },
+                {
+                  "name": "TEMPERATURE",
+                  "type": "FLOAT",
+                  "comment": "Temperature in Celsius"
+                },
+                {
+                  "name": "HUMIDITY",
+                  "type": "FLOAT",
+                  "comment": "Relative humidity percentage"
+                },
+                {
+                  "name": "WIND_SPEED",
+                  "type": "FLOAT",
+                  "comment": "Wind speed"
+                },
+                {
+                  "name": "WEATHER_CONDITION",
+                  "type": "STRING",
+                  "comment": "Weather summary such as Clear, Rain, Cloudy"
+                },
+                {
+                  "name": "LOAD_TS",
+                  "type": "TIMESTAMP",
+                  "comment": "Data refresh or ingestion timestamp"
+                }
+              ]
+            }
+          },
+          "dynamic_tables": {
+            "aqi_final_wide_dt": {
+              "name": "AQI_FINAL_WIDE_DT",
+              "comment": "Wide denormalized analytics table for BI consumption."
+            },
+            "station_dim_dt": {
+              "name": "STATION_DIM_DT",
+              "comment": "Station dimension table."
+            },
+            "time_dim_dt": {
+              "name": "TIME_DIM_DT",
+              "comment": "Time/date dimension table."
+            },
+            "pollutant_dim_dt": {
+              "name": "POLLUTANT_DIM_DT",
+              "comment": "Pollutant dimension table."
+            },
+            "fact_aqi_station_pollutant_dt": {
+              "name": "FACT_AQI_STATION_POLLUTANT_DT",
+              "comment": "Fact table at station/pollutant granularity."
+            },
+            "fact_aqi_aggregated_dt": {
+              "name": "FACT_AQI_AGGREGATED_DT",
+              "comment": "Aggregated fact metrics."
+            },
+            "city_daily_agg_aqi_fact_dt": {
+              "name": "CITY_DAILY_AGG_AQI_FACT_DT",
+              "comment": "Daily city-level aggregated metrics."
+            }
+          },
+          "functions": {
+            "prominent_index": {
+              "name": "PROMINENT_INDEX",
+              "comment": "Returns dominant pollutant index."
+            },
+            "three_sub_index_criteria": {
+              "name": "THREE_SUB_INDEX_CRITERIA",
+              "comment": "AQI evaluation logic."
+            },
+            "get_int": {
+              "name": "GET_INT",
+              "comment": "Helper conversion utility."
+            }
+          }
         },
-        "external_s3_json": {
-          "name": "S3_EXTERNAL_STAGE_JSON",
-          "schema": "UTIL",
-          "url": "s3://the-s3-bucket/raw-data/json/",
-          "storage_integration": "S3_STORAGE_INTEGRATION",
-          "file_format": "JSON_FILE_FORMAT",
-          "comment": "External stage for S3 JSON data ingestion"
-        }
-      },
-      "tables": {
-        "orders_data": {
-          "name": "ORDERS_DATA",
-          "schema": "RAW_DATA",
-          "comment": "Raw orders data from S3",
-          "columns": [
-            { "name": "ORDER_ID", "type": "STRING" },
-            { "name": "CUSTOMER_ID", "type": "STRING" },
-            { "name": "ORDER_DATE", "type": "DATE" },
-            { "name": "PRODUCT", "type": "STRING" },
-            { "name": "QUANTITY", "type": "INTEGER" },
-            { "name": "UNIT_PRICE", "type": "NUMBER(10,2)" },
-            { "name": "REGION", "type": "STRING" },
-            { "name": "SOURCE_FILE", "type": "STRING" },
-            { "name": "LOAD_TIMESTAMP", "type": "TIMESTAMP_NTZ", "default": "CURRENT_TIMESTAMP()" }
-          ]
-        }
-      },
-      "snowpipes": {
-        "orders_pipe": {
-          "name": "ORDERS_PIPE",
-          "schema": "RAW_DATA",
-          "copy_statement": "COPY INTO BRONZE.RAW_DATA.ORDERS_DATA (order_id, customer_id, order_date, product, quantity, unit_price, region, source_file, load_timestamp) FROM (SELECT $1, $2, $3, $4, $5, $6, $7, METADATA$FILENAME, CURRENT_TIMESTAMP() FROM @BRONZE.UTIL.S3_EXTERNAL_STAGE_CSV) FILE_FORMAT = (FORMAT_NAME = 'BRONZE.UTIL.CSV_FILE_FORMAT') PATTERN = '.*orders.*\\.csv'",
-          "auto_ingest": true,
-          "comment": "Snowpipe for automatic orders CSV data ingestion from S3"
-        }
-      }
-    },
-    "silver": {
-      "name": "SILVER",
-      "comment": "Silver layer - Cleaned, validated, and conformed data",
-      "schemas": [
         {
-          "name": "CURATED_DATA",
-          "comment": "Cleaned and validated data ready for analytics"
-        }
-      ]
-    },
-    "gold": {
-      "name": "GOLD",
-      "comment": "Gold layer - Business-ready aggregated and enriched data",
-      "schemas": [
-        {
-          "name": "ANALYTICS",
-          "comment": "Business analytics and aggregated metrics"
+          "name": "STREAMLIT",
+          "comment": "Serving - Presentation layer optimized for dashboards, apps, and interactive workloads."
         }
       ]
     }

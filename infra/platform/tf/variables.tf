@@ -42,10 +42,28 @@ variable "snowflake_user" {
   default     = ""
 }
 
-variable "snowflake_role" {
-  description = "Snowflake role for Terraform operations"
+variable "db_provisioner_role" {
+  description = "Snowflake role for database provisioning operations"
   type        = string
-  default     = "SYSADMIN"
+  default     = "DB_PROVISIONER"
+}
+
+variable "warehouse_provisioner_role" {
+  description = "Snowflake role for warehouse provisioning operations"
+  type        = string
+  default     = "WAREHOUSE_PROVISIONER"
+}
+
+variable "data_object_provisioner_role" {
+  description = "Snowflake role for data object provisioning operations"
+  type        = string
+  default     = "DATA_OBJECT_PROVISIONER"
+}
+
+variable "ingest_object_provisioner_role" {
+  description = "Snowflake role for ingest object provisioning operations"
+  type        = string
+  default     = "INGEST_OBJECT_PROVISIONER"
 }
 
 variable "snowflake_warehouse" {

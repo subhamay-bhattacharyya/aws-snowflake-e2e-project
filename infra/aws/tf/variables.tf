@@ -9,7 +9,7 @@ variable "s3_config" {
     bucket_name   = string
     versioning    = bool
     kms_key_alias = string
-    kms_key_arn   = string
+    sse_algorithm = string
     bucket_policy = string
     bucket_keys   = list(string)
   })
@@ -18,10 +18,14 @@ variable "s3_config" {
 variable "iam_role_config" {
   description = "IAM role configuration for Snowflake storage integration"
   type = object({
-    role_name          = string
+    name               = string
     assume_role_policy = string
     s3_bucket_arn      = string
     kms_key_arn        = string
+    inline_policies = list(object({
+      name   = string
+      policy = string
+    }))
   })
 }
 

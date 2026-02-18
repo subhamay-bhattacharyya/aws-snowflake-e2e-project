@@ -40,23 +40,16 @@
 
 # 1. S3 Bucket for Snowflake external stage
 module "s3" {
-  source = "./modules/s3"
+  source = "github.com/subhamay-bhattacharyya-tf/terraform-aws-s3-bucket/modules/bucket?ref=main"
 
-  s3_bucket = {
-    bucket_name   = var.s3_config.bucket_name
-    versioning    = var.s3_config.versioning
-    kms_key_alias = var.s3_config.kms_key_alias
-    kms_key_arn   = var.s3_config.kms_key_arn
-    bucket_policy = var.s3_config.bucket_policy
-    bucket_keys   = var.s3_config.bucket_keys
-  }
+  s3_config = var.s3_config
 }
 
 # 2. IAM Role for Snowflake storage integration
 #    - First apply: creates role with placeholder trust policy
 #    - After Phase 2: re-apply with snowflake_principal_arn and snowflake_external_id
 module "iam_role" {
-  source   = "./modules/iam"
+  source   = "github.com/subhamay-bhattacharyya-tf/terraform-aws-iam/modules/role?ref=feature/TFMOD-0003-initial-release-aws-iam-r"
   iam_role = var.iam_role_config
 
   depends_on = [module.s3]
@@ -65,13 +58,13 @@ module "iam_role" {
 # ----------------------------------------------------------------------------
 # Phase 3: Update IAM Role Trust Policy with Snowflake values
 # ----------------------------------------------------------------------------
-module "iam_role_final" {
-  source = "./modules/iam_role_final"
+# module "iam_role_final" {
+#   source = "./modules/iam_role_final"
 
-  enabled                = var.update_trust_policy
-  role_name              = var.iam_role_config.role_name
-  snowflake_iam_user_arn = var.snowflake_iam_user_arn
-  snowflake_external_id  = var.snowflake_external_id
+#   enabled                = var.update_trust_policy
+#   role_name              = var.iam_role_config.role_name
+#   snowflake_iam_user_arn = var.snowflake_iam_user_arn
+#   snowflake_external_id  = var.snowflake_external_id
 
-  depends_on = [module.iam_role]
-}
+#   depends_on = [module.iam_role]
+# }
