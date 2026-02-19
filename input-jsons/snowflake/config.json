@@ -199,6 +199,14 @@
               "warehouse": "TRANSFORM_WH",
               "comment": "Periodic enrichment refresh task."
             }
+          },
+          "snowpipes": {
+            "raw_aqi_pipe": {
+              "name": "RAW_AQI_PIPE",
+              "copy_statement": "COPY INTO AQI_DATABASE.BRONZE.RAW_AQI (INDEX_RECORD_TS, JSON_DATA, RECORD_COUNT, JSON_VERSION, _STG_FILE_NAME, _STG_FILE_LOAD_TS, _STG_FILE_MD5, _COPY_DATA_TS) FROM (SELECT $1:index_record_ts::TIMESTAMP_NTZ, $1:json_data::VARIANT, $1:record_count::NUMBER, $1:json_version::VARCHAR, METADATA$FILENAME, METADATA$FILE_LAST_MODIFIED, METADATA$FILE_CONTENT_KEY, CURRENT_TIMESTAMP() FROM @AQI_DATABASE.BRONZE.RAW_EXTERNAL_STG) FILE_FORMAT = (FORMAT_NAME = 'AQI_DATABASE.BRONZE.JSON_FILE_FORMAT')",
+              "auto_ingest": true,
+              "comment": "Auto-ingest pipe for raw AQI JSON data from S3"
+            }
           }
         },
         {

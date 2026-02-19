@@ -142,6 +142,8 @@ locals {
               format_type = ff.type
               database    = var.project_code != "" ? upper("${var.project_code}_${db.name}") : db.name
               schema      = schema.name
+              # Grants - INGEST_ADMIN needs USAGE to use file formats in pipes
+              usage_roles = [var.ingest_object_provisioner_role]
             },
             # Only include optional attributes if they are explicitly defined in config
             lookup(ff, "comment", null) != null ? { comment = ff.comment } : {},
@@ -180,38 +182,52 @@ locals {
       storage_blocked_locations = lookup(si, "storage_blocked_locations", [])
       enabled                   = lookup(si, "enabled", true)
       comment                   = lookup(si, "comment", "")
+      # Grants - USAGE privilege needed by roles that use the storage integration
+      grants = [
+        { role_name = var.ingest_object_provisioner_role, privileges = ["USAGE"] },
+        { role_name = var.data_object_provisioner_role, privileges = ["USAGE"] },
+        { role_name = var.db_provisioner_role, privileges = ["USAGE"] }
+      ]
     }
   }
 
   # Stages - flatten from all databases/schemas into a map
-  # Structure differs based on stage_type (internal vs external)
+  # All stage objects have the same structure (null for non-applicable attributes)
   stages = {
     for item in flatten([
       for db_key, db in lookup(local.snowflake_config, "databases", {}) : [
         for schema in lookup(db, "schemas", []) : [
-          for stage_key, stage in lookup(schema, "stages", {}) : merge(
-            {
-              name       = stage.name
-              database   = var.project_code != "" ? upper("${var.project_code}_${db.name}") : db.name
-              schema     = schema.name
-              stage_type = lookup(stage, "stage_type", "internal")
-              comment    = lookup(stage, "comment", "")
-              file_format = lookup(stage, "file_format", null) != null ? (
-                upper(lookup(stage, "file_format", "")) == "JSON" ? "JSON_FILE_FORMAT" :
-                upper(lookup(stage, "file_format", "")) == "CSV" ? "CSV_FILE_FORMAT" :
-                lookup(stage, "file_format", null)
-              ) : null
-            },
-            # Add internal stage specific attributes
-            lookup(stage, "stage_type", "internal") == "internal" ? {
-              directory_enabled = lookup(stage, "directory_enabled", false)
-            } : {},
-            # Add external stage specific attributes only if stage_type is external
-            lookup(stage, "stage_type", "internal") == "external" ? {
-              url                 = lookup(stage, "url", null) != null ? replace(stage.url, "the-s3-bucket", local.s3_config.bucket_name) : "s3://${local.s3_config.bucket_name}/"
-              storage_integration = lookup(stage, "storage_integration", null) != null && lookup(stage, "storage_integration", "") != "" ? (var.project_code != "" ? upper("${var.project_code}_${stage.storage_integration}") : stage.storage_integration) : (var.project_code != "" ? upper("${var.project_code}_S3_STORAGE_INTEGRATION") : "S3_STORAGE_INTEGRATION")
-            } : {}
-          )
+          for stage_key, stage in lookup(schema, "stages", {}) : {
+            name       = stage.name
+            database   = var.project_code != "" ? upper("${var.project_code}_${db.name}") : db.name
+            schema     = schema.name
+            stage_type = lookup(stage, "stage_type", "internal")
+            comment    = lookup(stage, "comment", "")
+            file_format = lookup(stage, "file_format", null) != null ? (
+              upper(lookup(stage, "file_format", "")) == "JSON" ? "JSON_FILE_FORMAT" :
+              upper(lookup(stage, "file_format", "")) == "CSV" ? "CSV_FILE_FORMAT" :
+              lookup(stage, "file_format", null)
+            ) : null
+            # Grants - READ privilege for external stages, READ/WRITE for internal stages
+            grants = lookup(stage, "stage_type", "internal") == "external" ? [
+              { role_name = var.ingest_object_provisioner_role, privileges = ["READ"] },
+              { role_name = var.data_object_provisioner_role, privileges = ["READ"] },
+              { role_name = var.db_provisioner_role, privileges = ["READ"] }
+            ] : [
+              { role_name = var.ingest_object_provisioner_role, privileges = ["READ", "WRITE"] },
+              { role_name = var.data_object_provisioner_role, privileges = ["READ", "WRITE"] },
+              { role_name = var.db_provisioner_role, privileges = ["READ", "WRITE"] }
+            ]
+            # Internal stage attributes (null for external)
+            directory_enabled = lookup(stage, "stage_type", "internal") == "internal" ? lookup(stage, "directory_enabled", false) : null
+            # External stage attributes (null for internal)
+            url = lookup(stage, "stage_type", "internal") == "external" ? (
+              lookup(stage, "url", null) != null ? replace(stage.url, "the-s3-bucket", local.s3_config.bucket_name) : "s3://${local.s3_config.bucket_name}/"
+            ) : null
+            storage_integration = lookup(stage, "stage_type", "internal") == "external" ? (
+              lookup(stage, "storage_integration", null) != null && lookup(stage, "storage_integration", "") != "" ? (var.project_code != "" ? upper("${var.project_code}_${stage.storage_integration}") : stage.storage_integration) : (var.project_code != "" ? upper("${var.project_code}_S3_STORAGE_INTEGRATION") : "S3_STORAGE_INTEGRATION")
+            ) : null
+          }
         ]
       ]
     ]) : item.name => item
@@ -223,12 +239,12 @@ locals {
       for db_key, db in lookup(local.snowflake_config, "databases", {}) : [
         for schema in lookup(db, "schemas", []) : [
           for table_key, table in lookup(schema, "tables", {}) : {
-            key                         = "${db_key}_${lower(schema.name)}_${table_key}"
-            database                    = var.project_code != "" ? upper("${var.project_code}_${db.name}") : db.name
-            schema                      = schema.name
-            name                        = table.name
-            table_type                  = lookup(table, "table_type", "PERMANENT")
-            comment                     = lookup(table, "comment", "")
+            key        = "${db_key}_${lower(schema.name)}_${table_key}"
+            database   = var.project_code != "" ? upper("${var.project_code}_${db.name}") : db.name
+            schema     = schema.name
+            name       = table.name
+            table_type = lookup(table, "table_type", "PERMANENT")
+            comment    = lookup(table, "comment", "")
             columns = [
               for col in table.columns : {
                 name     = col.name
@@ -266,8 +282,10 @@ locals {
             schema   = schema.name
             # Replace database/schema references in copy_statement with prefixed names
             copy_statement = var.project_code != "" ? replace(pipe.copy_statement, db.name, upper("${var.project_code}_${db.name}")) : pipe.copy_statement
-            auto_ingest    = lookup(pipe, "auto_ingest", true)
-            comment        = lookup(pipe, "comment", "")
+            auto_ingest    = lookup(pipe, "auto_ingest", false)
+            # aws_sns_topic_arn is optional - only needed if using SNS
+            aws_sns_topic_arn = lookup(pipe, "aws_sns_topic_arn", null)
+            comment           = lookup(pipe, "comment", "")
           }
         ]
       ]

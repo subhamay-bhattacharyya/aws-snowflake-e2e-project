@@ -68,8 +68,7 @@ module "aws" {
   # IAM role configuration (with placeholder trust policy initially)
   iam_role_config = local.iam_role_config
 
-  #   # Phase 3: Pass Snowflake values for trust policy update (empty on first apply)
-  update_trust_policy    = false # Set to true after Phase 2 to update via AWS module
+  update_trust_policy    = false
   snowflake_iam_user_arn = ""
   snowflake_external_id  = ""
 }
@@ -107,44 +106,80 @@ module "snowflake" {
 # Phase 3: Update IAM Role Trust Policy with Snowflake values
 # ----------------------------------------------------------------------------
 # Extract the first storage integration's trust values from Snowflake output
-# locals {
-#   storage_integration_keys     = keys(module.snowflake.storage_integrations)
-#   has_storage_integration      = length(local.storage_integration_keys) > 0
-#   first_storage_integration    = local.has_storage_integration ? module.snowflake.storage_integrations[local.storage_integration_keys[0]] : null
-#   snowflake_iam_user_arn       = local.first_storage_integration != null ? local.first_storage_integration.storage_aws_iam_user_arn : ""
-#   snowflake_external_id_output = local.first_storage_integration != null ? local.first_storage_integration.storage_aws_external_id : ""
-# }
+locals {
+  storage_integration_keys     = keys(module.snowflake.storage_integrations)
+  has_storage_integration      = length(local.storage_integration_keys) > 0
+  first_storage_integration    = local.has_storage_integration ? module.snowflake.storage_integrations[local.storage_integration_keys[0]] : null
+  snowflake_iam_user_arn       = try(local.first_storage_integration.describe_output[0].iam_user_arn, "")
+  snowflake_external_id_output = try(local.first_storage_integration.describe_output[0].external_id, "")
+}
 
-# module "aws_iam_role_final" {
-#   source = "../../aws/tf/modules/iam_role_final"
+# ----------------------------------------------------------------------------
+# Phase 3: Update IAM Role Trust Policy with Snowflake values
+# ----------------------------------------------------------------------------
+# Use null_resource with local-exec to update the trust policy via AWS CLI
+# This avoids Terraform state conflicts with the existing IAM role
 
-#   enabled                = local.has_storage_integration
-#   role_name              = local.iam_role_config.role_name
-#   snowflake_iam_user_arn = local.snowflake_iam_user_arn
-#   snowflake_external_id  = local.snowflake_external_id_output
+resource "null_resource" "update_iam_trust_policy" {
+  count = local.has_storage_integration && local.snowflake_iam_user_arn != "" ? 1 : 0
 
-#   depends_on = [module.snowflake]
-# }
+  triggers = {
+    snowflake_iam_user_arn = local.snowflake_iam_user_arn
+    snowflake_external_id  = local.snowflake_external_id_output
+  }
 
-# # ----------------------------------------------------------------------------
-# # Phase 4: Snowpipes (created AFTER trust policy is updated)
-# # ----------------------------------------------------------------------------
-# # Snowpipes with auto_ingest=true require the IAM role to be assumable by
-# # Snowflake. Creating them after the trust policy update ensures the
-# # storage integration can successfully assume the IAM role.
-# # ----------------------------------------------------------------------------
-# resource "snowflake_pipe" "this" {
-#   for_each = local.snowpipes
+  provisioner "local-exec" {
+    command = <<-EOT
+      aws iam update-assume-role-policy \
+        --role-name ${local.iam_role_config.name} \
+        --policy-document '{
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": "${local.snowflake_iam_user_arn}"
+              },
+              "Action": "sts:AssumeRole",
+              "Condition": {
+                "StringEquals": {
+                  "sts:ExternalId": "${local.snowflake_external_id_output}"
+                }
+              }
+            }
+          ]
+        }'
+    EOT
+  }
 
-#   name           = each.value.name
-#   database       = each.value.database
-#   schema         = each.value.schema
-#   copy_statement = each.value.copy_statement
-#   auto_ingest    = lookup(each.value, "auto_ingest", true)
-#   comment        = lookup(each.value, "comment", "")
+  depends_on = [module.snowflake, module.aws]
+}
 
-#   depends_on = [module.aws_iam_role_final, module.snowflake]
-# }
+# ----------------------------------------------------------------------------
+# Phase 4: Snowpipes (created AFTER trust policy is updated)
+# ----------------------------------------------------------------------------
+# Snowpipes with auto_ingest=true require the IAM role to be assumable by
+# Snowflake. Creating them after the trust policy update ensures the
+# storage integration can successfully assume the IAM role.
+# ----------------------------------------------------------------------------
+resource "snowflake_pipe" "this" {
+  for_each = local.snowpipes
+
+  provider = snowflake.ingest_object_provisioner
+
+  database       = each.value.database
+  schema         = each.value.schema
+  name           = each.value.name
+  copy_statement = each.value.copy_statement
+  auto_ingest    = each.value.auto_ingest
+  comment        = each.value.comment
+
+  depends_on = [
+    null_resource.update_iam_trust_policy,
+    module.snowflake,
+    module.aws
+  ]
+}
 
 # # ----------------------------------------------------------------------------
 # # Phase 5: Configure S3 Event Notifications for Snowpipe Auto-Ingest
