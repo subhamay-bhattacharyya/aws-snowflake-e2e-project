@@ -213,7 +213,7 @@ locals {
               { role_name = var.ingest_object_provisioner_role, privileges = ["READ"] },
               { role_name = var.data_object_provisioner_role, privileges = ["READ"] },
               { role_name = var.db_provisioner_role, privileges = ["READ"] }
-            ] : [
+              ] : [
               { role_name = var.ingest_object_provisioner_role, privileges = ["READ", "WRITE"] },
               { role_name = var.data_object_provisioner_role, privileges = ["READ", "WRITE"] },
               { role_name = var.db_provisioner_role, privileges = ["READ", "WRITE"] }
@@ -280,9 +280,18 @@ locals {
             name     = var.project_code != "" ? upper("${var.project_code}_${pipe.name}") : pipe.name
             database = var.project_code != "" ? upper("${var.project_code}_${db.name}") : db.name
             schema   = schema.name
-            # Replace database/schema references in copy_statement with prefixed names
-            copy_statement = var.project_code != "" ? replace(pipe.copy_statement, db.name, upper("${var.project_code}_${db.name}")) : pipe.copy_statement
-            auto_ingest    = lookup(pipe, "auto_ingest", false)
+            # Generate copy_statement from template if copy_template is provided
+            copy_statement = lookup(pipe, "copy_template", null) != null ? templatefile(
+              "${path.module}/templates/snowpipe-copy-statements/${pipe.copy_template}",
+              {
+                database    = var.project_code != "" ? upper("${var.project_code}_${db.name}") : db.name
+                schema      = schema.name
+                table       = lookup(pipe, "table", "")
+                stage       = lookup(pipe, "stage", "")
+                file_format = lookup(pipe, "file_format", "")
+              }
+            ) : (var.project_code != "" ? replace(pipe.copy_statement, db.name, upper("${var.project_code}_${db.name}")) : pipe.copy_statement)
+            auto_ingest = lookup(pipe, "auto_ingest", false)
             # aws_sns_topic_arn is optional - only needed if using SNS
             aws_sns_topic_arn = lookup(pipe, "aws_sns_topic_arn", null)
             comment           = lookup(pipe, "comment", "")

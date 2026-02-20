@@ -190,14 +190,5 @@ output "tables" {
 output "snowpipes" {
   description = "Map of snowpipe names to their details"
   sensitive   = true
-  value = {
-    for k, v in snowflake_pipe.this : k => {
-      name                 = v.name
-      database             = v.database
-      schema               = v.schema
-      auto_ingest          = v.auto_ingest
-      notification_channel = v.notification_channel
-      comment              = v.comment
-    }
-  }
+  value       = module.pipe.pipes
 }

@@ -90,3 +90,19 @@ variable "snowflake_config_path" {
   type        = string
   default     = "../../../input-jsons/snowflake/config.json"
 }
+
+# ============================================================================
+# Feature Flags
+# ============================================================================
+
+variable "enable_snowpipe_creation" {
+  description = "Enable Snowpipe creation. Set to false on first apply, then true on second apply after trust policy is updated."
+  type        = bool
+  default     = true
+}
+
+variable "enable_trust_policy_update" {
+  description = "Enable IAM trust policy update with Snowflake credentials. Set to false on first apply."
+  type        = bool
+  default     = true
+}

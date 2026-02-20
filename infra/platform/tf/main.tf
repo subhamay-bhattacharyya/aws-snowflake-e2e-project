@@ -107,9 +107,12 @@ module "snowflake" {
 # ----------------------------------------------------------------------------
 # Extract the first storage integration's trust values from Snowflake output
 locals {
+  # Check if storage integrations are configured (known at plan time from input config)
+  has_storage_integration_config = length(lookup(local.snowflake_config, "storage_integrations", {})) > 0
+  
+  # Runtime values from module output
   storage_integration_keys     = keys(module.snowflake.storage_integrations)
-  has_storage_integration      = length(local.storage_integration_keys) > 0
-  first_storage_integration    = local.has_storage_integration ? module.snowflake.storage_integrations[local.storage_integration_keys[0]] : null
+  first_storage_integration    = length(local.storage_integration_keys) > 0 ? module.snowflake.storage_integrations[local.storage_integration_keys[0]] : null
   snowflake_iam_user_arn       = try(local.first_storage_integration.describe_output[0].iam_user_arn, "")
   snowflake_external_id_output = try(local.first_storage_integration.describe_output[0].external_id, "")
 }
@@ -117,40 +120,17 @@ locals {
 # ----------------------------------------------------------------------------
 # Phase 3: Update IAM Role Trust Policy with Snowflake values
 # ----------------------------------------------------------------------------
-# Use null_resource with local-exec to update the trust policy via AWS CLI
-# This avoids Terraform state conflicts with the existing IAM role
+# Use dedicated module to update the trust policy
+# This ensures proper state management and dependency ordering
 
-resource "null_resource" "update_iam_trust_policy" {
-  count = local.has_storage_integration && local.snowflake_iam_user_arn != "" ? 1 : 0
+module "iam_trust_policy" {
+  source = "../../aws/tf/modules/iam_trust_policy"
 
-  triggers = {
-    snowflake_iam_user_arn = local.snowflake_iam_user_arn
-    snowflake_external_id  = local.snowflake_external_id_output
-  }
-
-  provisioner "local-exec" {
-    command = <<-EOT
-      aws iam update-assume-role-policy \
-        --role-name ${local.iam_role_config.name} \
-        --policy-document '{
-          "Version": "2012-10-17",
-          "Statement": [
-            {
-              "Effect": "Allow",
-              "Principal": {
-                "AWS": "${local.snowflake_iam_user_arn}"
-              },
-              "Action": "sts:AssumeRole",
-              "Condition": {
-                "StringEquals": {
-                  "sts:ExternalId": "${local.snowflake_external_id_output}"
-                }
-              }
-            }
-          ]
-        }'
-    EOT
-  }
+  # Use static config-based check (known at plan time)
+  enabled                = var.enable_trust_policy_update && local.has_storage_integration_config
+  role_name              = local.iam_role_config.name
+  snowflake_iam_user_arn = local.snowflake_iam_user_arn
+  snowflake_external_id  = local.snowflake_external_id_output
 
   depends_on = [module.snowflake, module.aws]
 }
@@ -161,21 +141,21 @@ resource "null_resource" "update_iam_trust_policy" {
 # Snowpipes with auto_ingest=true require the IAM role to be assumable by
 # Snowflake. Creating them after the trust policy update ensures the
 # storage integration can successfully assume the IAM role.
+# NOTE: On fresh deployments, run terraform apply twice or use -target flag
+# to ensure trust policy is updated before pipe creation.
 # ----------------------------------------------------------------------------
-resource "snowflake_pipe" "this" {
-  for_each = local.snowpipes
+module "pipe" {
+  source = "github.com/subhamay-bhattacharyya-tf/terraform-snowflake-pipe?ref=feature/TFMOD-0005-refactor-repository-struc"
 
-  provider = snowflake.ingest_object_provisioner
+  providers = {
+    snowflake = snowflake.ingest_object_provisioner
+  }
 
-  database       = each.value.database
-  schema         = each.value.schema
-  name           = each.value.name
-  copy_statement = each.value.copy_statement
-  auto_ingest    = each.value.auto_ingest
-  comment        = each.value.comment
+  # Only create pipes if snowpipes are configured
+  pipe_configs = var.enable_snowpipe_creation ? local.snowpipes : {}
 
   depends_on = [
-    null_resource.update_iam_trust_policy,
+    module.iam_trust_policy,
     module.snowflake,
     module.aws
   ]
