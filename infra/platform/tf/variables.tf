@@ -102,7 +102,7 @@ variable "enable_snowpipe_creation" {
 }
 
 variable "enable_trust_policy_update" {
-  description = "Enable IAM trust policy update with Snowflake credentials. Set to false on first apply."
+  description = "Enable IAM trust policy update with Snowflake credentials. Set to true only once after storage integration is created."
   type        = bool
-  default     = true
+  default     = false
 }

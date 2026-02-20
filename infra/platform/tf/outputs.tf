@@ -133,3 +133,11 @@ output "snowpipes" {
   description = "Map of snowpipe names to their details"
   value       = module.pipe.pipes
 }
+
+# ----------------------------------------------------------------------------
+# 8. Dynamic tables
+# ----------------------------------------------------------------------------
+output "dynamic_tables" {
+  description = "Map of dynamic tables to their details"
+  value       = module.dynamic_table
+}

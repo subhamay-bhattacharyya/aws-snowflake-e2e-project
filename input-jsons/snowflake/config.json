@@ -219,90 +219,20 @@
           "dynamic_tables": {
             "clean_aqi_dt": {
               "name": "CLEAN_AQI_DT",
+              "target_lag": "1 hour",
+              "query_template_file": "clean_aqi.tpl",
+              "warehouse": "load_wh",
+              "source_schema": "BRONZE",
+              "source_table": "RAW_AQI",
               "comment": "Cleansed and validated AQI dataset auto-refreshed from bronze."
-            },
-            "clean_flatten_aqi_dt": {
-              "name": "CLEAN_FLATTEN_AQI_DT",
-              "comment": "Flattened/normalized structure for downstream joins."
             }
           }
         },
         {
           "name": "GOLD",
           "comment": "Curated - Business-ready facts/dimensions and aggregated models optimized for analytics and BI.",
-          "tables": {
-            "weather_data": {
-              "name": "WEATHER_DATA",
-              "comment": "Weather enrichment dataset joined with AQI analytics.",
-              "columns": [
-                {
-                  "name": "CITY",
-                  "type": "STRING",
-                  "comment": "City name"
-                },
-                {
-                  "name": "OBSERVATION_DATE",
-                  "type": "DATE",
-                  "comment": "Date of weather observation"
-                },
-                {
-                  "name": "TEMPERATURE",
-                  "type": "FLOAT",
-                  "comment": "Temperature in Celsius"
-                },
-                {
-                  "name": "HUMIDITY",
-                  "type": "FLOAT",
-                  "comment": "Relative humidity percentage"
-                },
-                {
-                  "name": "WIND_SPEED",
-                  "type": "FLOAT",
-                  "comment": "Wind speed"
-                },
-                {
-                  "name": "WEATHER_CONDITION",
-                  "type": "STRING",
-                  "comment": "Weather summary such as Clear, Rain, Cloudy"
-                },
-                {
-                  "name": "LOAD_TS",
-                  "type": "TIMESTAMP",
-                  "comment": "Data refresh or ingestion timestamp"
-                }
-              ]
-            }
-          },
-          "dynamic_tables": {
-            "aqi_final_wide_dt": {
-              "name": "AQI_FINAL_WIDE_DT",
-              "comment": "Wide denormalized analytics table for BI consumption."
-            },
-            "station_dim_dt": {
-              "name": "STATION_DIM_DT",
-              "comment": "Station dimension table."
-            },
-            "time_dim_dt": {
-              "name": "TIME_DIM_DT",
-              "comment": "Time/date dimension table."
-            },
-            "pollutant_dim_dt": {
-              "name": "POLLUTANT_DIM_DT",
-              "comment": "Pollutant dimension table."
-            },
-            "fact_aqi_station_pollutant_dt": {
-              "name": "FACT_AQI_STATION_POLLUTANT_DT",
-              "comment": "Fact table at station/pollutant granularity."
-            },
-            "fact_aqi_aggregated_dt": {
-              "name": "FACT_AQI_AGGREGATED_DT",
-              "comment": "Aggregated fact metrics."
-            },
-            "city_daily_agg_aqi_fact_dt": {
-              "name": "CITY_DAILY_AGG_AQI_FACT_DT",
-              "comment": "Daily city-level aggregated metrics."
-            }
-          },
+          "tables": {},
+          "dynamic_tables": {},
           "functions": {
             "prominent_index": {
               "name": "PROMINENT_INDEX",

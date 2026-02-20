@@ -124,11 +124,12 @@ locals {
           name    = schema.name
           comment = lookup(schema, "comment", "")
           grants = {
-            usage_roles              = [var.data_object_provisioner_role, var.ingest_object_provisioner_role]
-            create_file_format_roles = [var.data_object_provisioner_role]
-            create_stage_roles       = [var.ingest_object_provisioner_role]
-            create_table_roles       = [var.data_object_provisioner_role]
-            create_pipe_roles        = [var.ingest_object_provisioner_role]
+            usage_roles                = [var.data_object_provisioner_role, var.ingest_object_provisioner_role]
+            create_file_format_roles   = [var.data_object_provisioner_role]
+            create_stage_roles         = [var.ingest_object_provisioner_role]
+            create_table_roles         = [var.data_object_provisioner_role]
+            create_pipe_roles          = [var.ingest_object_provisioner_role]
+            create_dynamic_table_roles = [var.data_object_provisioner_role]
           }
         }
       ]
@@ -304,6 +305,41 @@ locals {
             # aws_sns_topic_arn is optional - only needed if using SNS
             aws_sns_topic_arn = lookup(pipe, "aws_sns_topic_arn", null)
             comment           = lookup(pipe, "comment", "")
+          }
+        ]
+      ]
+    ]) : item.key => item
+  }
+
+  # Dynamic Tables - flatten from all databases/schemas into a map
+  dynamic_tables = {
+    for item in flatten([
+      for db_key, db in lookup(local.snowflake_config, "databases", {}) : [
+        for schema in lookup(db, "schemas", []) : [
+          for dt_key, dt in lookup(schema, "dynamic_tables", {}) : {
+            key      = "${db_key}_${lower(schema.name)}_${dt_key}"
+            name     = var.project_code != "" ? upper("${var.project_code}_${dt.name}") : dt.name
+            database = var.project_code != "" ? upper("${var.project_code}_${db.name}") : db.name
+            schema   = schema.name
+            warehouse = lookup(dt, "warehouse", null) != null ? (
+              var.project_code != "" ? upper("${var.project_code}_${dt.warehouse}") : upper(dt.warehouse)
+            ) : null
+            # Source table info for grants
+            source_schema = lookup(dt, "source_schema", null)
+            source_table  = lookup(dt, "source_table", null)
+            # Generate query from template if query_template_file is provided
+            query = lookup(dt, "query_template_file", null) != null ? templatefile(
+              "${path.module}/templates/dynamic-tables/${dt.query_template_file}",
+              {
+                database      = var.project_code != "" ? upper("${var.project_code}_${db.name}") : db.name
+                schema        = schema.name
+                source_schema = lookup(dt, "source_schema", "BRONZE")
+                table         = lookup(dt, "source_table", "RAW_AQI")
+              }
+            ) : lookup(dt, "query", null)
+            target_lag   = lookup(dt, "target_lag", "1 hour")
+            refresh_mode = lookup(dt, "refresh_mode", null)
+            comment      = lookup(dt, "comment", "")
           }
         ]
       ]
