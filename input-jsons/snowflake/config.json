@@ -4,7 +4,7 @@
       "name": "S3_STORAGE_INTEGRATION",
       "storage_provider": "S3",
       "storage_allowed_locations": [
-        ""
+        "raw-data/json"
       ],
       "enabled": true,
       "comment": "Storage integration for S3 bucket access"
@@ -77,6 +77,7 @@
               "name": "RAW_EXTERNAL_STG",
               "stage_type": "external",
               "file_format": "JSON",
+              "url": "s3://the-s3-bucket/raw-data/json/",
               "comment": "External stage for storing incoming AQI raw files before COPY ingestion."
             },
             "raw_internal_stg": {

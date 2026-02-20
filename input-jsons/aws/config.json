@@ -52,7 +52,7 @@
     }
   },
   "trust": {
-    "snowflake_principal_arn": "",
-    "snowflake_external_id": ""
+    "snowflake_principal_arn": "arn:aws:iam::837042614963:user/mrzh1000-s",
+    "snowflake_external_id": "MJC25791_SFCRole=361_gsZg4pewDLr03mGsBkshhsjgdOA="
   }
 }

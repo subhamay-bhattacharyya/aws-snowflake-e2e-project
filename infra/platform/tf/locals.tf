@@ -33,7 +33,12 @@ locals {
   # AWS Configuration
   # ============================================================================
 
-  # Assume role policy - uses Snowflake principal ARN and external ID from trust config
+  # Check if storage integrations are configured (known at plan time from input config)
+  has_storage_integration_config = length(lookup(local.snowflake_config, "storage_integrations", {})) > 0
+
+  # Assume role policy - uses Snowflake principal ARN and external ID from trust config JSON
+  # On first apply, these are empty so we use a placeholder
+  # After storage integration is created, update the JSON config with actual values
   snowflake_principal_arn = local.trust_config.snowflake_principal_arn
   snowflake_external_id   = local.trust_config.snowflake_external_id
   has_snowflake_trust     = local.snowflake_principal_arn != "" && local.snowflake_external_id != ""
@@ -59,7 +64,7 @@ locals {
     kms_key_alias = local.kms_key_alias != null ? replace(local.kms_key_alias, "alias/", "") : null
     sse_algorithm = local.kms_key_alias != null ? "aws:kms" : null
     bucket_keys   = try(local.aws_config.s3.bucket_keys, null)
-    bucket_policy = templatefile("${path.module}/../../aws/tf/templates/bucket-policy/s3-bucket-policy.tpl", {
+    bucket_policy = templatefile("${path.module}/templates/bucket-policy/s3-bucket-policy.tpl", {
       aws_account_id = data.aws_caller_identity.current.account_id
       bucket_name    = "${var.project_code}-${local.aws_config.s3.bucket_name}-${var.environment}-${local.aws_config.region}"
     })
@@ -264,6 +269,10 @@ locals {
             data_retention_time_in_days = lookup(table, "data_retention_time_in_days", 1)
             change_tracking             = lookup(table, "change_tracking", false)
             drop_before_create          = lookup(table, "drop_before_create", false)
+            # Grants - INGEST_ADMIN needs INSERT and SELECT for snowpipe operations
+            grants = [
+              { role_name = var.ingest_object_provisioner_role, privileges = ["INSERT", "SELECT"] }
+            ]
           }
         ]
       ]

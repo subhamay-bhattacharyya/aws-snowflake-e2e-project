@@ -36,6 +36,29 @@ provider "snowflake" {
   ]
 }
 
+# Alias for db_provisioner (same as default, for explicit module references)
+provider "snowflake" {
+  alias             = "db_provisioner"
+  organization_name = var.snowflake_organization_name != "" ? var.snowflake_organization_name : null
+  account_name      = var.snowflake_account_name != "" ? var.snowflake_account_name : null
+  user              = var.snowflake_user != "" ? var.snowflake_user : null
+  role              = var.db_provisioner_role != "" ? var.db_provisioner_role : null
+  warehouse         = var.snowflake_warehouse != "" ? var.snowflake_warehouse : null
+  authenticator     = "SNOWFLAKE_JWT"
+
+  params = {
+    query_tag = "${var.project_code}-terraform-db-provisioner"
+  }
+
+  preview_features_enabled = [
+    "snowflake_file_format_resource",
+    "snowflake_storage_integration_aws_resource",
+    "snowflake_stage_internal_resource",
+    "snowflake_stage_external_s3_resource",
+    "snowflake_pipe_resource"
+  ]
+}
+
 provider "snowflake" {
   alias             = "warehouse_provisioner"
   organization_name = var.snowflake_organization_name != "" ? var.snowflake_organization_name : null

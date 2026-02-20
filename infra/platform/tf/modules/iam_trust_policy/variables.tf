@@ -1,4 +1,4 @@
-# -- infra/aws/tf/modules/iam_trust_policy/variables.tf
+# -- infra/platform/tf/modules/iam_trust_policy/variables.tf
 
 variable "enabled" {
   description = "Enable trust policy update"

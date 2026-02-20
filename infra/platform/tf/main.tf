@@ -1,192 +1,236 @@
 # -- infra/platform/tf/main.tf (Platform Module)
 # ============================================================================
-# Snowflake Lakehouse - Platform Orchestration          ← YOU ARE HERE
+# Snowflake Lakehouse - Platform Orchestration
 # ============================================================================
 #
 # ┌─────────────────────────────────────────────────────────────┐
-# │  PHASE 1: AWS Resources (module.aws)                        │
+# │  PHASE 1: AWS Resources                                     │
 # ├─────────────────────────────────────────────────────────────┤
 # │  1. S3 Bucket (landing zone for data files)                 │
-# │  2. IAM Role (initial - with placeholder trust policy)      │
-# │     └─► Output: IAM Role ARN for Storage Integration        │
+# │  2. IAM Role (with placeholder trust policy)                │
 # └─────────────────────────────────────────────────────────────┘
 #                             │
 #                             ▼
 # ┌─────────────────────────────────────────────────────────────┐
-# │  PHASE 2: Snowflake Base Resources (module.snowflake)       │
+# │  PHASE 2: Snowflake Resources                               │
 # ├─────────────────────────────────────────────────────────────┤
-# │  1. Warehouses (compute resources)                          │
+# │  1. Warehouses                                              │
 # │  2. Databases & Schemas                                     │
-# │  3. File Formats (CSV, JSON, Parquet)                       │
-# │  4. Storage Integration ← references IAM Role ARN           │
-# │     └─► Outputs: STORAGE_AWS_IAM_USER_ARN                   │
-# │                  STORAGE_AWS_EXTERNAL_ID                    │
-# │  5. External Stages (S3 paths)                              │
-# │  6. Tables (target tables for data)                         │
-# │  NOTE: Snowpipes created separately in Phase 4              │
+# │  3. File Formats                                            │
+# │  4. Storage Integration                                     │
+# │  5. Stages                                                  │
+# │  6. Tables                                                  │
 # └─────────────────────────────────────────────────────────────┘
 #                             │
 #                             ▼
 # ┌─────────────────────────────────────────────────────────────┐
-# │  PHASE 3: AWS Trust Policy Update (module.aws_iam_role_final)│
+# │  PHASE 3: AWS Trust Policy Update                           │
 # ├─────────────────────────────────────────────────────────────┤
-# │  Update IAM Role trust policy with Snowflake's              │
-# │  STORAGE_AWS_IAM_USER_ARN and STORAGE_AWS_EXTERNAL_ID       │
-# │  (Enables Snowflake to assume the IAM role)                 │
+# │  Update IAM Role trust policy with Snowflake credentials    │
 # └─────────────────────────────────────────────────────────────┘
 #                             │
 #                             ▼
 # ┌─────────────────────────────────────────────────────────────┐
-# │  PHASE 4: Snowpipes (snowflake_pipe resources)              │
-# ├─────────────────────────────────────────────────────────────┤
-# │  Create Snowpipes AFTER trust policy is updated             │
-# │  (auto_ingest requires valid IAM role assumption)           │
-# │     └─► Output: SQS Notification Channel ARN                │
-# └─────────────────────────────────────────────────────────────┘
-#                             │
-#                             ▼
-# ┌─────────────────────────────────────────────────────────────┐
-# │  PHASE 5: S3 Event Notifications (module.s3_event_notification)│
-# ├─────────────────────────────────────────────────────────────┤
-# │  Configure S3 bucket event notifications to trigger         │
-# │  Snowpipe auto-ingest via SQS queue                         │
-# │  (s3:ObjectCreated:* → Snowpipe SQS ARN)                    │
+# │  PHASE 4: Snowpipes                                         │
 # └─────────────────────────────────────────────────────────────┘
 #
 # ============================================================================
 
-# ----------------------------------------------------------------------------
-# Phase 1: AWS Resources (S3 Bucket + IAM Role with placeholder trust)
-# ----------------------------------------------------------------------------
+# ============================================================================
+# PHASE 1: AWS Resources
+# ============================================================================
 
-module "aws" {
-  source = "../../aws/tf"
+# ----------------------------------------------------------------------------
+# 1.1 S3 Bucket for Snowflake external stage
+# ----------------------------------------------------------------------------
+module "s3" {
+  source = "github.com/subhamay-bhattacharyya-tf/terraform-aws-s3-bucket/modules/bucket?ref=main"
 
-  # S3 bucket configuration
   s3_config = local.s3_config
-
-  # IAM role configuration (with placeholder trust policy initially)
-  iam_role_config = local.iam_role_config
-
-  update_trust_policy    = false
-  snowflake_iam_user_arn = ""
-  snowflake_external_id  = ""
 }
 
 # ----------------------------------------------------------------------------
-# Phase 2: Snowflake Base Resources (WITHOUT Snowpipes)
+# 1.2 IAM Role for Snowflake storage integration (initial with placeholder trust)
 # ----------------------------------------------------------------------------
+module "iam_role" {
+  source = "github.com/subhamay-bhattacharyya-tf/terraform-aws-iam/modules/role?ref=main"
 
-module "snowflake" {
-  source = "../../snowflake/tf"
+  iam_role = local.iam_role_config
 
-  # Pass provider aliases
+  depends_on = [module.s3]
+}
+
+# ============================================================================
+# PHASE 2: Snowflake Resources
+# ============================================================================
+
+# ----------------------------------------------------------------------------
+# 2.1 Warehouses
+# ----------------------------------------------------------------------------
+module "warehouse" {
+  source = "github.com/subhamay-bhattacharyya-tf/terraform-snowflake-warehouse?ref=main"
+
   providers = {
-    snowflake                           = snowflake
-    snowflake.db_provisioner            = snowflake
-    snowflake.warehouse_provisioner     = snowflake.warehouse_provisioner
-    snowflake.data_object_provisioner   = snowflake.data_object_provisioner
-    snowflake.ingest_object_provisioner = snowflake.ingest_object_provisioner
+    snowflake = snowflake.warehouse_provisioner
   }
 
-  # Pass Snowflake configurations
-  warehouse_configs           = local.warehouses
-  database_schemas            = local.database_schemas
-  file_format_configs         = local.file_formats
-  storage_integration_configs = local.storage_integrations
-  stage_configs               = local.stages
-  table_configs               = local.tables
-  # snowpipe_config            = {} # Empty - Snowpipes created in Phase 4
-
-  depends_on = [module.aws]
-}
-
-
-# ----------------------------------------------------------------------------
-# Phase 3: Update IAM Role Trust Policy with Snowflake values
-# ----------------------------------------------------------------------------
-# Extract the first storage integration's trust values from Snowflake output
-locals {
-  # Check if storage integrations are configured (known at plan time from input config)
-  has_storage_integration_config = length(lookup(local.snowflake_config, "storage_integrations", {})) > 0
-  
-  # Runtime values from module output
-  storage_integration_keys     = keys(module.snowflake.storage_integrations)
-  first_storage_integration    = length(local.storage_integration_keys) > 0 ? module.snowflake.storage_integrations[local.storage_integration_keys[0]] : null
-  snowflake_iam_user_arn       = try(local.first_storage_integration.describe_output[0].iam_user_arn, "")
-  snowflake_external_id_output = try(local.first_storage_integration.describe_output[0].external_id, "")
+  warehouse_configs = local.warehouses
 }
 
 # ----------------------------------------------------------------------------
-# Phase 3: Update IAM Role Trust Policy with Snowflake values
+# 2.2 Databases and Schemas
 # ----------------------------------------------------------------------------
-# Use dedicated module to update the trust policy
-# This ensures proper state management and dependency ordering
+module "database_schemas" {
+  source = "github.com/subhamay-bhattacharyya-tf/terraform-snowflake-database-schema?ref=main"
 
-module "iam_trust_policy" {
-  source = "../../aws/tf/modules/iam_trust_policy"
+  providers = {
+    snowflake = snowflake.db_provisioner
+  }
 
-  # Use static config-based check (known at plan time)
-  enabled                = var.enable_trust_policy_update && local.has_storage_integration_config
-  role_name              = local.iam_role_config.name
-  snowflake_iam_user_arn = local.snowflake_iam_user_arn
-  snowflake_external_id  = local.snowflake_external_id_output
-
-  depends_on = [module.snowflake, module.aws]
+  database_configs = local.database_schemas
 }
 
 # ----------------------------------------------------------------------------
-# Phase 4: Snowpipes (created AFTER trust policy is updated)
+# 2.3 File Formats
 # ----------------------------------------------------------------------------
-# Snowpipes with auto_ingest=true require the IAM role to be assumable by
-# Snowflake. Creating them after the trust policy update ensures the
-# storage integration can successfully assume the IAM role.
-# NOTE: On fresh deployments, run terraform apply twice or use -target flag
-# to ensure trust policy is updated before pipe creation.
+module "file_formats" {
+  source = "github.com/subhamay-bhattacharyya-tf/terraform-snowflake-file-format?ref=main"
+
+  providers = {
+    snowflake = snowflake.data_object_provisioner
+  }
+
+  file_format_configs = local.file_formats
+
+  depends_on = [module.database_schemas]
+}
+
 # ----------------------------------------------------------------------------
-module "pipe" {
-  source = "github.com/subhamay-bhattacharyya-tf/terraform-snowflake-pipe?ref=feature/TFMOD-0005-refactor-repository-struc"
+# 2.4 Storage Integrations
+# ----------------------------------------------------------------------------
+module "storage_integrations" {
+  source = "github.com/subhamay-bhattacharyya-tf/terraform-snowflake-storage-integration?ref=main"
 
   providers = {
     snowflake = snowflake.ingest_object_provisioner
   }
 
-  # Only create pipes if snowpipes are configured
+  storage_integration_configs = local.storage_integrations
+
+  depends_on = [module.file_formats]
+}
+
+# ----------------------------------------------------------------------------
+# 2.5 Stages
+# ----------------------------------------------------------------------------
+module "stage" {
+  source = "github.com/subhamay-bhattacharyya-tf/terraform-snowflake-stage?ref=main"
+
+  providers = {
+    snowflake = snowflake.ingest_object_provisioner
+  }
+
+  stage_configs = local.stages
+
+  depends_on = [module.storage_integrations]
+}
+
+# ----------------------------------------------------------------------------
+# 2.6 Tables
+# ----------------------------------------------------------------------------
+module "table" {
+  source = "github.com/subhamay-bhattacharyya-tf/terraform-snowflake-table?ref=main"
+
+  providers = {
+    snowflake = snowflake.data_object_provisioner
+  }
+
+  table_configs = local.tables
+
+  depends_on = [module.stage]
+}
+
+# ----------------------------------------------------------------------------
+# 2.7 Table Grants - Grant INSERT and SELECT to INGEST_ADMIN for snowpipe
+# ----------------------------------------------------------------------------
+resource "snowflake_grant_privileges_to_account_role" "table_grants" {
+  for_each = local.tables
+
+  provider = snowflake.data_object_provisioner
+
+  privileges        = ["INSERT", "SELECT"]
+  account_role_name = var.ingest_object_provisioner_role
+  on_schema_object {
+    object_type = "TABLE"
+    object_name = "\"${each.value.database}\".\"${each.value.schema}\".\"${each.value.name}\""
+  }
+
+  depends_on = [module.table]
+}
+
+# ============================================================================
+# PHASE 3: AWS Trust Policy Update
+# ============================================================================
+# Updates the IAM role trust policy with Snowflake credentials from storage integration.
+# On fresh deployments, the JSON config has empty trust values, so this module
+# updates the trust policy after the storage integration is created.
+# ----------------------------------------------------------------------------
+locals {
+  # Runtime values from module output (only available after storage integration is created)
+  aws_storage_integrations       = try(module.storage_integrations.aws_storage_integrations, {})
+  first_integration_key          = length(keys(local.aws_storage_integrations)) > 0 ? keys(local.aws_storage_integrations)[0] : null
+  first_storage_integration      = local.first_integration_key != null ? local.aws_storage_integrations[local.first_integration_key] : null
+  snowflake_iam_user_arn_runtime = try(local.first_storage_integration.describe_output[0].iam_user_arn, "")
+  snowflake_external_id_runtime  = try(local.first_storage_integration.describe_output[0].external_id, "")
+}
+
+# Update IAM role trust policy with Snowflake credentials
+module "iam_trust_policy" {
+  source = "./modules/iam_trust_policy"
+
+  enabled                = var.enable_trust_policy_update && local.has_storage_integration_config
+  role_name              = local.iam_role_config.name
+  snowflake_iam_user_arn = local.snowflake_iam_user_arn_runtime
+  snowflake_external_id  = local.snowflake_external_id_runtime
+
+  depends_on = [module.storage_integrations, module.iam_role]
+}
+
+# ============================================================================
+# PHASE 4: Snowpipes
+# ============================================================================
+module "pipe" {
+  source = "github.com/subhamay-bhattacharyya-tf/terraform-snowflake-pipe?ref=main"
+
+  providers = {
+    snowflake = snowflake.ingest_object_provisioner
+  }
+
   pipe_configs = var.enable_snowpipe_creation ? local.snowpipes : {}
 
   depends_on = [
     module.iam_trust_policy,
-    module.snowflake,
-    module.aws
+    module.table
   ]
 }
 
-# # ----------------------------------------------------------------------------
-# # Phase 5: Configure S3 Event Notifications for Snowpipe Auto-Ingest
-# # ----------------------------------------------------------------------------
-# locals {
-#   # Check if snowpipes are configured (known at plan time from input config)
-#   has_snowpipes = length(local.snowpipes) > 0
+# ============================================================================
+# PHASE 5: S3 Event Notifications for Snowpipe Auto-Ingest
+# ============================================================================
+module "s3_notification" {
+  source = "github.com/subhamay-bhattacharyya-tf/terraform-aws-s3-bucket/modules/event-notification?ref=main"
 
-#   # Build notification configs from snowpipe outputs
-#   snowpipe_notifications = [
-#     for key, pipe in snowflake_pipe.this : {
-#       id            = key
-#       sqs_arn       = pipe.notification_channel
-#       events        = ["s3:ObjectCreated:*"]
-#       filter_prefix = lookup(local.snowpipes[key], "filter_prefix", null)
-#       filter_suffix = lookup(local.snowpipes[key], "filter_suffix", null)
-#     } if pipe.notification_channel != null && pipe.notification_channel != ""
-#   ]
-# }
+  bucket_name = local.s3_config.bucket_name
 
-# module "s3_event_notification" {
-#   source = "../../aws/tf/modules/s3_event_notification"
+  sqs_notifications = [
+    for key, pipe_output in module.pipe.pipes : {
+      id            = "${lower(replace(local.snowpipes[key].name, "_", "-"))}-notification"
+      queue_arn     = pipe_output.notification_channel
+      events        = ["s3:ObjectCreated:*"]
+      filter_prefix = lookup(local.snowpipes[key], "filter_prefix", null)
+      filter_suffix = lookup(local.snowpipes[key], "filter_suffix", null)
+    } if lookup(local.snowpipes[key], "auto_ingest", false) == true
+  ]
 
-#   # Use input config to determine if enabled (known at plan time)
-#   enabled       = local.has_snowpipes
-#   bucket_name   = local.s3_config.bucket_name
-#   notifications = local.snowpipe_notifications
-
-#   depends_on = [snowflake_pipe.this, module.aws_iam_role_final]
-# }
+  depends_on = [module.pipe, module.s3]
+}
