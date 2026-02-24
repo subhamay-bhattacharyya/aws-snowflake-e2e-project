@@ -13,7 +13,7 @@ There are many ways you can help:
 
 ## Reporting Issues
 
-If you find a bug or have an issue, please check the [open issues](https://github.com/subhamay-bhattacharyya-gha/terraform-template/issues) before creating a new one. If it’s not there, feel free to open a new issue and provide as much information as possible.
+If you find a bug or have an issue, please check the [open issues](https://github.com/subhamay-bhattacharyya-gha/aws-snowflake-e2e-project/issues) before creating a new one. If it’s not there, feel free to open a new issue and provide as much information as possible.
 
 ## Submitting Changes
 

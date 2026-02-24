@@ -19,5 +19,6 @@ aws_config_path       = "../../../input-jsons/aws/config.json"
 snowflake_config_path = "../../../input-jsons/snowflake/config.json"
 # ----------------------------------------------------------------------------
 # Project Configuration
+# AWS(AWS) - Snowflake (SF) - End to End (E2E)
 # ----------------------------------------------------------------------------
-project_code = "e2eproj"
+project_code = "awssfe2e"

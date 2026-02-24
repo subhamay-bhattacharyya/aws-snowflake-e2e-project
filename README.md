@@ -23,140 +23,333 @@ The project demonstrates a complete data lakehouse implementation with:
 
 ```
 .
-├── infra/                          # Infrastructure as Code (Terraform)
-│   ├── platform/tf/                # Root orchestration module (entry point)
-│   │   ├── main.tf                 # Orchestrates AWS + Snowflake modules
-│   │   ├── locals.tf               # Configuration parsing from JSON
-│   │   ├── variables.tf            # Input variables
-│   │   ├── outputs.tf              # Module outputs
-│   │   ├── versions.tf             # Provider version constraints
-│   │   ├── backend.tf              # Terraform Cloud backend
-│   │   ├── providers-aws.tf        # AWS provider configuration
-│   │   └── providers-snowflake.tf  # Snowflake provider configuration
-│   ├── aws/tf/                     # AWS child module
-│   │   ├── main.tf                 # S3 bucket + IAM role orchestration
-│   │   ├── modules/                # Nested modules (s3, iam, iam_role_final, s3_event_notification)
-│   │   └── templates/              # Bucket policy templates
-│   └── snowflake/tf/               # Snowflake child module
-│       ├── main.tf                 # Warehouses, databases, stages, pipes
-│       └── modules/                # Nested modules (warehouse, database, stage, etc.)
-├── input-jsons/                    # Configuration files
-│   ├── aws/config.json             # AWS resource configuration
-│   └── snowflake/config.json       # Snowflake resource configuration
-├── snowflake-ddl/                  # Snowflake DDL Scripts
-│   ├── 00_account/                 # Account-level objects (resource monitors, network policies)
-│   ├── 01_security/                # Roles, users, grants
-│   ├── 02_warehouses/              # Virtual warehouses
-│   ├── 03_databases/               # Database definitions
-│   ├── 04_storage/                 # Storage integrations & external stages
-│   ├── 05_schemas/                 # Schema-level objects (tables, views)
-│   ├── 06_pipes/                   # Snowpipe definitions
-│   ├── 07_tasks/                   # Task definitions
-│   ├── 08_functions/               # UDFs and UDTFs
-│   ├── 09_procedures/              # Stored procedures
-│   ├── environments/               # Environment configs (dev/staging/prod)
-│   └── scripts/                    # Utility scripts (deploy, rollback, validate)
+├── infra/                              # Infrastructure as Code
+│   └── platform/tf/                    # Root Terraform orchestration (entry point)
+│       ├── main.tf                     # Resource orchestration (modules)
+│       ├── locals.tf                   # Configuration parsing from JSON
+│       ├── variables.tf                # Input variables
+│       ├── outputs.tf                  # Module outputs
+│       ├── versions.tf                 # Terraform & provider versions
+│       ├── backend.tf                  # Terraform backend configuration
+│       ├── providers-aws.tf            # AWS provider configuration
+│       ├── providers-snowflake.tf      # Snowflake provider with role aliases
+│       ├── terraform.tfvars            # Variable values
+│       ├── modules/                    # Local modules
+│       │   ├── iam_role_final/         # IAM role trust policy update
+│       │   └── iam_trust_policy/       # IAM trust policy configuration
+│       └── templates/                  # Template files
+│           ├── bucket-policy/          # S3 bucket policy templates
+│           ├── dynamic-tables/         # Dynamic table templates
+│           └── snowpipe-copy-statements/ # Snowpipe COPY statement templates
+├── input-jsons/                        # Configuration files
+│   ├── aws/config.json                 # AWS resource configuration
+│   └── snowflake/config.json           # Snowflake resource configuration
 ├── .github/
-│   └── workflows/                  # GitHub Actions workflows (ci.yaml, etc.)
-├── .devcontainer/                  # Dev container configuration
-├── cliff.toml                      # git-cliff changelog configuration
-└── utils/                          # Utility scripts
+│   └── workflows/                      # GitHub Actions CI/CD
+│       ├── ci.yaml                     # Continuous integration
+│       ├── terraform-deploy.yaml       # Terraform deployment
+│       └── terraform-destroy.yaml      # Terraform destroy
+├── .devcontainer/                      # Dev container configuration
+├── cliff.toml                          # git-cliff changelog configuration
+└── README.md
 ```
 
 ## Architecture
 
-This project uses a **4-phase architecture**:
+This project implements a **multi-phase deployment architecture** that orchestrates AWS and Snowflake resources with proper dependency management.
 
-### Phase 1: AWS Resources
-- S3 Bucket for data storage
-- IAM Role with placeholder trust policy
+### High-Level Data Flow
 
-### Phase 2: Snowflake Resources
-- Warehouses, Databases, Schemas
-- File Formats, Storage Integration
-- External Stages, Tables, Snowpipes
+```mermaid
+flowchart LR
+    subgraph Sources["DATA SOURCES"]
+        direction TB
+        S1[CSV Files]
+        S2[JSON Files]
+        S3[Parquet Files]
+    end
 
-### Phase 3: AWS Trust Policy Update
-- Update IAM Role trust policy with Snowflake's IAM User ARN and External ID
+    subgraph AWS["AWS"]
+        S3Bucket["S3 BUCKET<br/>Landing zone with<br/>event notifications"]
+    end
 
-### Phase 4: S3 Event Notifications
-- Configure S3 bucket notifications to trigger Snowpipe auto-ingest
+    subgraph Snowflake["SNOWFLAKE"]
+        direction TB
+        SI["STORAGE INTEGRATION<br/>Cross-cloud auth"]
+        ES["EXTERNAL STAGES<br/>S3 references"]
+        SP["SNOWPIPES<br/>Auto-ingest"]
+    end
+
+    subgraph Layers["DATA LAYERS"]
+        direction TB
+        STG["STAGING<br/>Raw landing"]
+        RAW["RAW<br/>Cleansed data"]
+        CUR["CURATED<br/>Business-ready"]
+    end
+
+    subgraph Consumption["CONSUMPTION"]
+        direction TB
+        ST[Streamlit]
+        BI[BI Tools]
+        DS[Data Sharing]
+    end
+
+    Sources --> S3Bucket
+    S3Bucket --> SI
+    SI --> ES
+    ES --> SP
+    SP --> STG
+    STG --> RAW
+    RAW --> CUR
+    CUR --> Consumption
+```
+
+### Deployment Phases
+
+| Phase | Description | Resources Created |
+|-------|-------------|-------------------|
+| **Phase 1** | AWS Resources | S3 Bucket, IAM Role (placeholder trust policy) |
+| **Phase 2** | Snowflake Resources | Warehouses, Databases, Schemas, Storage Integration, External Stages, Tables, Snowpipes |
+| **Phase 3** | AWS Trust Policy Update | Update IAM Role trust policy with Snowflake's IAM User ARN and External ID |
+| **Phase 4** | S3 Event Notifications | Configure S3 bucket notifications to trigger Snowpipe auto-ingest |
+
+## Security & Governance
+
+### Role-Based Access Control (RBAC)
+
+This project implements a **least-privilege governance model** using dedicated admin roles for different Snowflake object types. Each role has specific permissions to create and manage only the objects within its domain, following Snowflake's recommended security best practices.
+
+#### Admin Roles Overview
+
+| Role | Purpose | Objects Managed | Provider Alias |
+|------|---------|-----------------|----------------|
+| `WAREHOUSE_ADMIN` | Warehouse lifecycle management | Warehouses | `snowflake.warehouse_provisioner` |
+| `PLATFORM_DB_OWNER` | Database & schema administration | Databases, Schemas | `snowflake.db_provisioner` |
+| `DATA_OBJECT_ADMIN` | Data object administration | File Formats, Tables | `snowflake.data_object_provisioner` |
+| `INGEST_ADMIN` | Ingestion pipeline administration | Storage Integrations, Stages, Snowpipes | `snowflake.ingest_object_provisioner` |
+
+#### Role Hierarchy & Responsibilities
+
+```
+                                    ACCOUNTADMIN
+                                         │
+                          ┌──────────────┼──────────────┐
+                          │              │              │
+                          ▼              ▼              ▼
+                     SYSADMIN      SECURITYADMIN    USERADMIN
+                          │
+      ┌───────────────────┼───────────────────┬───────────────────┐
+      │                   │                   │                   │
+      ▼                   ▼                   ▼                   ▼
+WAREHOUSE_ADMIN    PLATFORM_DB_OWNER   DATA_OBJECT_ADMIN    INGEST_ADMIN
+      │                   │                   │                   │
+      ▼                   ▼                   ▼                   ▼
+ Warehouses          Databases          File Formats     Storage Integrations
+                     Schemas            Tables           Stages
+                                                         Snowpipes
+```
+
+#### Benefits of Role Separation
+
+| Benefit | Description |
+|---------|-------------|
+| **Least Privilege** | Each role only has permissions for its specific domain |
+| **Audit Trail** | Clear ownership and accountability for each object type |
+| **Separation of Duties** | Different teams can manage different object types |
+| **Blast Radius Reduction** | Compromised credentials have limited impact |
+| **Compliance Ready** | Easier to demonstrate access controls for SOC2, HIPAA, etc. |
+| **Operational Safety** | Prevents accidental modifications to unrelated objects |
+
+#### Required Privileges by Object Type
+
+The following table details the privileges required for each Snowflake object type to enable Snowpipe and Dynamic Tables to work seamlessly.
+
+| Object Type | Privilege | Role | Purpose |
+|-------------|-----------|------|---------|
+| **Warehouse** | `CREATE WAREHOUSE` | `WAREHOUSE_ADMIN` | Create warehouses |
+| | `USAGE` | `INGEST_ADMIN`, `DATA_OBJECT_ADMIN` | Execute queries for pipes/transformations |
+| | `OPERATE` | `INGEST_ADMIN` | Resume/suspend warehouse for pipe operations |
+| | `MONITOR` | `WAREHOUSE_ADMIN` | Monitor warehouse usage |
+| **Database** | `CREATE DATABASE` | `PLATFORM_DB_OWNER` | Create databases |
+| | `USAGE` | `DATA_OBJECT_ADMIN`, `INGEST_ADMIN` | Access database objects |
+| **Schema** | `CREATE SCHEMA` | `PLATFORM_DB_OWNER` | Create schemas within database |
+| | `USAGE` | `DATA_OBJECT_ADMIN`, `INGEST_ADMIN` | Access schema objects |
+| | `CREATE FILE FORMAT` | `DATA_OBJECT_ADMIN` | Create file formats in schema |
+| | `CREATE TABLE` | `DATA_OBJECT_ADMIN` | Create tables in schema |
+| | `CREATE STAGE` | `INGEST_ADMIN` | Create stages in schema |
+| | `CREATE PIPE` | `INGEST_ADMIN` | Create snowpipes in schema |
+| | `CREATE DYNAMIC TABLE` | `DATA_OBJECT_ADMIN` | Create dynamic tables in schema |
+| **Table** | `INSERT` | `INGEST_ADMIN` | Snowpipe inserts data into tables |
+| | `SELECT` | `INGEST_ADMIN`, `DATA_OBJECT_ADMIN` | Read data for validation/transformation |
+| | `OWNERSHIP` | `DATA_OBJECT_ADMIN` | Full control over table |
+| **File Format** | `USAGE` | `INGEST_ADMIN` | Use file format in COPY/pipe operations |
+| | `OWNERSHIP` | `DATA_OBJECT_ADMIN` | Full control over file format |
+| **Stage (External)** | `USAGE` | `INGEST_ADMIN` | Access stage for COPY operations |
+| | `READ` | `INGEST_ADMIN`, `DATA_OBJECT_ADMIN` | Read files from external stage |
+| | `OWNERSHIP` | `INGEST_ADMIN` | Full control over stage |
+| **Stage (Internal)** | `READ`, `WRITE` | `INGEST_ADMIN`, `DATA_OBJECT_ADMIN` | Read/write files to internal stage |
+| **Storage Integration** | `CREATE INTEGRATION` | `INGEST_ADMIN` | Create storage integrations (account-level) |
+| | `USAGE` | `INGEST_ADMIN`, `DATA_OBJECT_ADMIN` | Use integration in stages |
+| **Pipe (Snowpipe)** | `OWNERSHIP` | `INGEST_ADMIN` | Full control over pipe |
+| | `OPERATE` | `INGEST_ADMIN` | Pause/resume pipe |
+| | `MONITOR` | `INGEST_ADMIN` | View pipe status/history |
+| **Dynamic Table** | `CREATE DYNAMIC TABLE` | `DATA_OBJECT_ADMIN` | Create dynamic tables |
+| | `SELECT` | `DATA_OBJECT_ADMIN` | Query dynamic table |
+| | `OPERATE` | `DATA_OBJECT_ADMIN` | Manually refresh dynamic table |
+| | `OWNERSHIP` | `DATA_OBJECT_ADMIN` | Full control over dynamic table |
+| **Stream** | `CREATE STREAM` | `DATA_OBJECT_ADMIN` | Create streams on tables |
+| | `SELECT` | `DATA_OBJECT_ADMIN` | Read stream changes |
+| | `OWNERSHIP` | `DATA_OBJECT_ADMIN` | Full control over stream |
+| **Task** | `CREATE TASK` | `DATA_OBJECT_ADMIN` | Create scheduled tasks |
+| | `EXECUTE TASK` | `DATA_OBJECT_ADMIN` | Run tasks |
+| | `OPERATE` | `DATA_OBJECT_ADMIN` | Resume/suspend tasks |
+| | `OWNERSHIP` | `DATA_OBJECT_ADMIN` | Full control over task |
+
+#### How Role Separation Works
+
+1. **Terraform Provider Aliases**: Each admin role has a dedicated Snowflake provider alias configured in `providers-snowflake.tf`:
+
+```hcl
+# Warehouse operations
+provider "snowflake" {
+  alias = "warehouse_provisioner"
+  role  = var.warehouse_provisioner_role  # WAREHOUSE_ADMIN
+}
+
+# Database/Schema operations
+provider "snowflake" {
+  alias = "db_provisioner"
+  role  = var.db_provisioner_role  # PLATFORM_DB_OWNER
+}
+
+# File Format/Table operations
+provider "snowflake" {
+  alias = "data_object_provisioner"
+  role  = var.data_object_provisioner_role  # DATA_OBJECT_ADMIN
+}
+
+# Storage Integration/Stage/Pipe operations
+provider "snowflake" {
+  alias = "ingest_object_provisioner"
+  role  = var.ingest_object_provisioner_role  # INGEST_ADMIN
+}
+```
+
+2. **Module Provider Assignment**: Each Terraform module uses the appropriate provider based on the objects it manages.
+
+3. **Cross-Role Grants**: When objects created by one role need to be accessed by another role, explicit grants are configured.
+
+## Configuration
+
+### JSON Configuration Files
+
+All resources are defined in JSON configuration files for easy customization:
+
+#### AWS Configuration (`input-jsons/aws/config.json`)
+
+```json
+{
+  "s3_buckets": {
+    "data_lake": {
+      "name": "my-data-lake-bucket",
+      "versioning": true,
+      "lifecycle_rules": { ... }
+    }
+  },
+  "iam_roles": {
+    "snowflake_access": {
+      "name": "snowflake-s3-access-role",
+      "trust_policy": { ... }
+    }
+  }
+}
+```
+
+#### Snowflake Configuration (`input-jsons/snowflake/config.json`)
+
+```json
+{
+  "warehouses": {
+    "load_wh": {
+      "name": "LOAD_WH",
+      "warehouse_size": "X-SMALL",
+      "auto_suspend": 60,
+      "auto_resume": true
+    }
+  },
+  "databases": {
+    "lakehouse_db": {
+      "name": "LAKEHOUSE_DB",
+      "schemas": [
+        {
+          "name": "STAGING",
+          "file_formats": { ... },
+          "stages": { ... },
+          "tables": { ... },
+          "snowpipes": { ... }
+        }
+      ]
+    }
+  }
+}
+```
+
+### Terraform Variables
+
+Key variables in `variables.tf`:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `project_code` | Prefix for resource naming | `awssfe2e` |
+| `environment` | Environment (devl/test/prod) | `devl` |
+| `warehouse_provisioner_role` | Role for warehouse ops | `WAREHOUSE_ADMIN` |
+| `db_provisioner_role` | Role for database ops | `PLATFORM_DB_OWNER` |
+| `data_object_provisioner_role` | Role for data objects | `DATA_OBJECT_ADMIN` |
+| `ingest_object_provisioner_role` | Role for ingestion | `INGEST_ADMIN` |
+
+## Terraform Modules
+
+This project uses external Terraform modules for each resource type:
+
+### Snowflake Modules
+
+| Module | Purpose | Repository |
+|--------|---------|------------|
+| `warehouse` | Warehouse management | [terraform-snowflake-warehouse](https://github.com/subhamay-bhattacharyya-tf/terraform-snowflake-warehouse) |
+| `database_schemas` | Database & schema management | [terraform-snowflake-database-schema](https://github.com/subhamay-bhattacharyya-tf/terraform-snowflake-database-schema) |
+| `file_formats` | File format management | [terraform-snowflake-file-format](https://github.com/subhamay-bhattacharyya-tf/terraform-snowflake-file-format) |
+| `stage` | External/internal stage management | [terraform-snowflake-stage](https://github.com/subhamay-bhattacharyya-tf/terraform-snowflake-stage) |
+| `storage_integrations` | Storage integration management | [terraform-snowflake-storage-integration](https://github.com/subhamay-bhattacharyya-tf/terraform-snowflake-storage-integration) |
+| `table` | Table management | [terraform-snowflake-table](https://github.com/subhamay-bhattacharyya-tf/terraform-snowflake-table) |
+| `pipe` | Snowpipe management | [terraform-snowflake-pipe](https://github.com/subhamay-bhattacharyya-tf/terraform-snowflake-pipe) |
+| `dynamic_table` | Dynamic table management | [terraform-snowflake-dynamic-table](https://github.com/subhamay-bhattacharyya-tf/terraform-snowflake-dynamic-table) |
+
+### AWS Modules
+
+| Module | Purpose | Repository |
+|--------|---------|------------|
+| `s3` | S3 bucket management | [terraform-aws-s3-bucket](https://github.com/subhamay-bhattacharyya-tf/terraform-aws-s3-bucket) |
+| `iam_role` | IAM role management | [terraform-aws-iam](https://github.com/subhamay-bhattacharyya-tf/terraform-aws-iam) |
 
 ## Getting Started
 
 ### Prerequisites
 
-- **Terraform** >= 1.0
-- **Snowflake Account** with appropriate permissions
-- **AWS Account** with IAM permissions
-- **GitHub Repository** with Actions enabled
+| Requirement | Version | Purpose |
+|-------------|---------|---------|
+| Terraform | >= 1.0 | Infrastructure as Code |
+| Snowflake Account | Enterprise or higher | Data platform |
+| AWS Account | - | S3 storage and IAM |
+| GitHub Account | - | CI/CD and repository hosting |
+| OpenSSL | >= 1.1.1 | Key pair generation |
 
 #### One-Time Snowflake Setup
 
-Before using this action, run the following SQL script in Snowflake to create the utility infrastructure (only needs to be run once):
+Before deploying infrastructure, set up the admin roles in Snowflake.
 
-**Step 1: Create Utility Infrastructure**
+**Step 1: Grant MANAGE GRANTS Privilege to SYSADMIN**
 
-```sql
--- =========================================================
--- Snowflake Utility Setup for DDL Migrations
--- =========================================================
--- This script creates:
---   1. A dedicated warehouse for CI/CD metadata operations
---   2. Utility database (UTIL_DB)
---   3. Utility schema (UTIL_SCHEMA)
---   4. DDL migration history table
---
--- Safe to re-run (idempotent)
--- =========================================================
-
--- -----------------------------------------------------------
--- 1. Create and use a dedicated warehouse
--- -----------------------------------------------------------
-CREATE WAREHOUSE IF NOT EXISTS UTIL_WH
-  WAREHOUSE_SIZE = 'XSMALL'
-  WAREHOUSE_TYPE = 'STANDARD'
-  AUTO_SUSPEND = 60
-  AUTO_RESUME = TRUE
-  INITIALLY_SUSPENDED = TRUE
-  COMMENT = 'Warehouse for CI/CD utility operations and DDL migration tracking';
-
-USE WAREHOUSE UTIL_WH;
-
--- -----------------------------------------------------------
--- 2. Create utility database and schema
--- -----------------------------------------------------------
-CREATE DATABASE IF NOT EXISTS UTIL_DB
-  COMMENT = 'Utility database for CI/CD metadata and migration tracking';
-
-CREATE SCHEMA IF NOT EXISTS UTIL_DB.UTIL_SCHEMA
-  COMMENT = 'Utility schema for migration and operational tables';
-
--- -----------------------------------------------------------
--- 3. Create DDL migration history table
--- -----------------------------------------------------------
-CREATE TABLE IF NOT EXISTS UTIL_DB.UTIL_SCHEMA.DDL_MIGRATION_HISTORY (
-  script_name    STRING        NOT NULL,
-  script_path    STRING        NOT NULL,
-  checksum       STRING        NOT NULL,
-  applied_at     TIMESTAMP_LTZ NOT NULL DEFAULT CURRENT_TIMESTAMP(),
-  status         STRING        NOT NULL,
-  error_message  STRING,
-  run_id         STRING,
-  actor          STRING
-) COMMENT = 'Tracks executed Snowflake DDL migration scripts for CI/CD pipelines';
-
--- -----------------------------------------------------------
--- 4. (Optional) Verify creation
--- -----------------------------------------------------------
-SELECT
-  'UTIL_DB.UTIL_SCHEMA.DDL_MIGRATION_HISTORY created successfully' AS status,
-  CURRENT_TIMESTAMP() AS verified_at;
-```
-
-**Step 2: Grant MANAGE GRANTS Privilege to SYSADMIN**
-
-SYSADMIN needs the MANAGE GRANTS privilege to grant permissions to other roles like PUBLIC. Run this as ACCOUNTADMIN:
+SYSADMIN needs the MANAGE GRANTS privilege to grant permissions to other roles. Run this as ACCOUNTADMIN:
 
 ```sql
 USE ROLE ACCOUNTADMIN;
@@ -170,8 +363,6 @@ SHOW GRANTS TO ROLE SYSADMIN;
 ```
 
 **Note:** With this setup, SYSADMIN can both create objects and manage their permissions, simplifying the deployment process.
-
-**Note:** If you want to use a different database/schema/table name, you can customize it using the `migrations_table` input parameter in the GitHub Actions workflow.
 
 ### 1. Create Dedicated Service Account
 
@@ -209,7 +400,7 @@ grep -v "BEGIN PUBLIC" snowflake_key.pub | grep -v "END PUBLIC" | tr -d '\n'
 
 **Note:** If using a passphrase, you'll need to provide `SNOWFLAKE_PRIVATE_KEY_PASSPHRASE` as an additional secret.
 
-#### Step 2: Create Service Account in Snowflake
+#### Setting Up Admin Roles
 
 Run this SQL in Snowflake (replace `YOUR_PUBLIC_KEY_HERE` with the output from Step 1):
 
@@ -293,6 +484,62 @@ SHOW GRANTS TO ROLE DATA_OBJECT_ADMIN;
 SHOW GRANTS TO ROLE INGEST_ADMIN;
 SHOW GRANTS TO ROLE WAREHOUSE_ADMIN;
 ```
+#### Setting Up Analyst Role (Read-Only)
+
+Run the following SQL as `ACCOUNTADMIN` to create a read-only analyst role:
+
+```sql
+-- ============================================================================
+-- Create Analyst Role for Read-Only Access
+-- ============================================================================
+
+-- 1. Create the analyst role
+CREATE ROLE IF NOT EXISTS ANALYST
+  COMMENT = 'Read-only access to query tables and views';
+
+-- 2. Set up role hierarchy (ANALYST reports to SYSADMIN)
+GRANT ROLE ANALYST TO ROLE SYSADMIN;
+
+-- 3. Grant warehouse usage for query execution
+GRANT USAGE ON WAREHOUSE COMPUTE_WH TO ROLE ANALYST;
+
+-- 4. Grant database and schema usage (read-only)
+GRANT USAGE ON DATABASE <DATABASE_NAME> TO ROLE ANALYST;
+GRANT USAGE ON SCHEMA <DATABASE_NAME>.<SCHEMA_NAME> TO ROLE ANALYST;
+
+-- 5. Grant SELECT on all existing tables in schema
+GRANT SELECT ON ALL TABLES IN SCHEMA <DATABASE_NAME>.<SCHEMA_NAME> TO ROLE ANALYST;
+
+-- 6. Grant SELECT on all existing views in schema
+GRANT SELECT ON ALL VIEWS IN SCHEMA <DATABASE_NAME>.<SCHEMA_NAME> TO ROLE ANALYST;
+
+-- 7. Grant SELECT on future tables (auto-grant for new tables)
+GRANT SELECT ON FUTURE TABLES IN SCHEMA <DATABASE_NAME>.<SCHEMA_NAME> TO ROLE ANALYST;
+
+-- 8. Grant SELECT on future views (auto-grant for new views)
+GRANT SELECT ON FUTURE VIEWS IN SCHEMA <DATABASE_NAME>.<SCHEMA_NAME> TO ROLE ANALYST;
+
+-- 9. Grant role to analyst users
+GRANT ROLE ANALYST TO USER <ANALYST_USERNAME>;
+```
+
+#### Post-Database Creation Grants
+
+After databases and schemas are created by `PLATFORM_DB_ADMIN`, run these grants:
+
+```sql
+-- Grant schema privileges to DATA_OBJECT_ADMIN
+GRANT USAGE ON DATABASE <DATABASE_NAME> TO ROLE DATA_OBJECT_ADMIN;
+GRANT USAGE ON SCHEMA <DATABASE_NAME>.<SCHEMA_NAME> TO ROLE DATA_OBJECT_ADMIN;
+GRANT CREATE FILE FORMAT ON SCHEMA <DATABASE_NAME>.<SCHEMA_NAME> TO ROLE DATA_OBJECT_ADMIN;
+GRANT CREATE TABLE ON SCHEMA <DATABASE_NAME>.<SCHEMA_NAME> TO ROLE DATA_OBJECT_ADMIN;
+
+-- Grant schema privileges to INGEST_ADMIN
+GRANT USAGE ON DATABASE <DATABASE_NAME> TO ROLE INGEST_ADMIN;
+GRANT USAGE ON SCHEMA <DATABASE_NAME>.<SCHEMA_NAME> TO ROLE INGEST_ADMIN;
+GRANT CREATE STAGE ON SCHEMA <DATABASE_NAME>.<SCHEMA_NAME> TO ROLE INGEST_ADMIN;
+GRANT CREATE PIPE ON SCHEMA <DATABASE_NAME>.<SCHEMA_NAME> TO ROLE INGEST_ADMIN;
+```
 
 **Security Notes:**
 - ✅ Use `SYSADMIN` role for all DDL and grant operations
@@ -309,8 +556,8 @@ Set up GitHub Actions authentication. Navigate to **Settings → Secrets and var
 
 | Variable Name | Description | Example |
 |---------------|-------------|---------|
-| `SNOWFLAKE_ORGANIZATION_NAME` | Snowflake organization name | `AGXUOKJ` |
-| `SNOWFLAKE_ACCOUNT_NAME` | Snowflake account name | `JKC15404` |
+| `SNOWFLAKE_ORGANIZATION_NAME` | Snowflake organization name | `XXXXXXX` |
+| `SNOWFLAKE_ACCOUNT_NAME` | Snowflake account name | `XXXXXXX` |
 | `SNOWFLAKE_USER` | Service account username | `GITHUB_ACTIONS_USER` |
 | `SNOWFLAKE_ROLE` | Snowflake role for deployments | `SYSADMIN` |
 | `AWS_REGION` | AWS region for resources | `us-east-1` |
@@ -385,104 +632,37 @@ For secure GitHub Actions authentication with AWS without long-lived credentials
 - ✅ Improved security posture
 - ✅ Recommended by AWS and GitHub
 
-## Snowflake Object Organization
+## GitHub Actions Workflows
 
-Scripts are organized by execution order:
+### Available Workflows
 
-1. **00_account**: Resource monitors, network policies
-2. **01_security**: Roles, users, grants
-3. **02_warehouses**: Virtual warehouses
-4. **03_databases**: Database creation
-5. **04_storage**: Storage integrations and external stages
-6. **05_schemas**: Tables, views, streams
-7. **06_pipes**: Snowpipe for automated ingestion
-8. **07_tasks**: Scheduled tasks
-9. **08_functions**: User-defined functions
-10. **09_procedures**: Stored procedures
+| Workflow | Trigger | Purpose |
+|----------|---------|---------|
+| `ci.yaml` | Pull requests | Validates Terraform configuration, runs linting |
+| `terraform-deploy.yaml` | Push to main | Deploys infrastructure to target environment |
+| `terraform-destroy.yaml` | Manual dispatch | Destroys infrastructure (with confirmation) |
+| `create-branch.yaml` | Manual dispatch | Creates feature/release branches |
+| `notify.yaml` | Workflow completion | Sends notifications on deployment status |
 
-## Sample Implementation
+### Required Secrets
 
-The repository includes sample implementations:
+| Secret | Description |
+|--------|-------------|
+| `SNOWFLAKE_PRIVATE_KEY` | Snowflake private key for authentication |
+| `TF_TOKEN_APP_TERRAFORM_IO` | Terraform Cloud API token |
+| `AWS_OIDC_ROLE_ARN` | AWS IAM role ARN for OIDC authentication |
 
-- **Warehouse**: `COMPUTE_WH` (small, auto-suspend)
-- **Database**: `RAW_DB` with sales, marketing, finance schemas
-- **Tables**: 
-  - `customer_orders` - Order transactions
-  - `customer_master` - Customer data
-  - `product_catalog` - Product information
+### Required Variables
 
-## GitHub Actions Workflow
-
-The deployment workflow (`snowflake-deploy.yaml`) automatically:
-
-- Discovers all SQL files in the repository
-- Deploys them in dependency order
-- Runs files in parallel within each stage
-- Uses the reusable action: `subhamay-bhattacharyya-gha/snowflake-run-ddl-action`
-
-**Triggers**:
-- Push to `main` or `develop` branches (when `snowflake/**` files change)
-- Pull requests to `main` or `develop`
-- Manual workflow dispatch
+| Variable | Description |
+|----------|-------------|
+| `SNOWFLAKE_ORGANIZATION_NAME` | Snowflake organization |
+| `SNOWFLAKE_ACCOUNT_NAME` | Snowflake account |
+| `SNOWFLAKE_USER` | Snowflake username |
+| `SNOWFLAKE_ROLE` | Snowflake role for deployments |
+| `AWS_REGION` | AWS region for resources |
 
 ## Best Practices
-
-### Migration Tracking
-
-By default, the action tracks which scripts have been applied using a migrations table. This enables:
-
-- **Idempotent execution**: Scripts are only run once (based on path + checksum)
-- **Change detection**: If a script's content changes, it will be re-run
-- **Audit trail**: Complete history of what was applied, when, and by whom
-
-#### Migration Table Schema
-
-The default table `UTIL_DB.UTIL_SCHEMA.DDL_MIGRATION_HISTORY` contains:
-
-- `script_name` - Filename of the script
-- `script_path` - Full path to the script
-- `checksum` - SHA-256 hash of the script content
-- `applied_at` - Timestamp when applied
-- `status` - SUCCESS or FAILED
-- `error_message` - Error details if failed
-- `run_id` - GitHub Actions run ID
-- `actor` - GitHub user who triggered the run
-
-#### Baseline Mode
-
-Use baseline mode to mark existing scripts as applied without executing them. This is useful when:
-
-- Adopting this action in an existing environment
-- Scripts have already been manually applied
-- You want to start tracking from a known state
-
-To enable baseline mode in the workflow:
-
-```yaml
-- name: Deploy with baseline
-  uses: subhamay-bhattacharyya-gha/snowflake-run-ddl-action@v1
-  with:
-    baseline: true
-    # ... other parameters
-```
-
-#### Disabling Migration Tracking
-
-To run scripts without tracking (not recommended for production):
-
-```yaml
-- name: Deploy without tracking
-  uses: subhamay-bhattacharyya-gha/snowflake-run-ddl-action@v1
-  with:
-    track_migrations: false
-    # ... other parameters
-```
-
-### SQL Scripts
-- Use `CREATE OR REPLACE` or `CREATE IF NOT EXISTS` for idempotency
-- Add meaningful comments to all objects
-- Number files for execution order (01_, 02_, etc.)
-- Test in dev before promoting to staging/prod
 
 ### Security
 - Never commit credentials or private keys
@@ -496,14 +676,19 @@ To run scripts without tracking (not recommended for production):
 - Tag all resources consistently
 - Use separate environments (dev/staging/prod)
 
+### Terraform
+- Use `terraform fmt` to format code consistently
+- Run `terraform validate` before applying changes
+- Review `terraform plan` output carefully
+- Use workspaces or separate state files per environment
+
 ## Documentation
 
 - [Infrastructure Setup](infra/README.md)
-- [Snowflake DDL Scripts](snowflake/README.md)
-- [GitHub Actions Setup](.github/SETUP.md)
-- [Deployment Scripts](snowflake/scripts/README.md)
 
 ## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ### Commit Message Convention
 
@@ -562,6 +747,8 @@ git commit -m "feat!: change storage integration naming convention"
 3. Test in dev environment
 4. Create a pull request with description
 5. Wait for approval and automated deployment
+
+## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 

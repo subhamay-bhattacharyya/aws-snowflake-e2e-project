@@ -219,7 +219,7 @@
           "dynamic_tables": {
             "clean_aqi_dt": {
               "name": "CLEAN_AQI_DT",
-              "target_lag": "1 hour",
+              "target_lag": "downstream",
               "query_template_file": "clean_aqi.tpl",
               "warehouse": "load_wh",
               "source_schema": "BRONZE",

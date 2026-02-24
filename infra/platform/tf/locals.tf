@@ -97,6 +97,13 @@ locals {
     ]
   }
 
+  # Runtime values from module output (only available after storage integration is created)
+  aws_storage_integrations       = try(module.storage_integrations.aws_storage_integrations, {})
+  first_integration_key          = length(keys(local.aws_storage_integrations)) > 0 ? keys(local.aws_storage_integrations)[0] : null
+  first_storage_integration      = local.first_integration_key != null ? local.aws_storage_integrations[local.first_integration_key] : null
+  snowflake_iam_user_arn_runtime = try(local.first_storage_integration.describe_output[0].iam_user_arn, "")
+  snowflake_external_id_runtime  = try(local.first_storage_integration.describe_output[0].external_id, "")
+
   # ============================================================================
   # Snowflake Configuration
   # ============================================================================
@@ -105,6 +112,10 @@ locals {
   warehouses = {
     for key, wh in lookup(local.snowflake_config, "warehouses", {}) : key => merge(wh, {
       name = var.project_code != "" ? upper("${var.project_code}_${wh.name}") : wh.name
+      # Grants - DATA_OBJECT_ADMIN needs USAGE for dynamic table refresh
+      grants = [
+        { role_name = var.data_object_provisioner_role, privileges = ["USAGE"] }
+      ]
     })
   }
 
@@ -305,6 +316,10 @@ locals {
             # aws_sns_topic_arn is optional - only needed if using SNS
             aws_sns_topic_arn = lookup(pipe, "aws_sns_topic_arn", null)
             comment           = lookup(pipe, "comment", "")
+            # Grants - MONITOR privilege for DATA_OBJECT_ADMIN to view pipe status
+            grants = [
+              { role_name = var.data_object_provisioner_role, privileges = ["MONITOR"] }
+            ]
           }
         ]
       ]
@@ -340,6 +355,10 @@ locals {
             target_lag   = lookup(dt, "target_lag", "1 hour")
             refresh_mode = lookup(dt, "refresh_mode", null)
             comment      = lookup(dt, "comment", "")
+            # Grants - SELECT for querying, OPERATE for manual refresh
+            grants = [
+              { role_name = var.ingest_object_provisioner_role, privileges = ["SELECT"] }
+            ]
           }
         ]
       ]

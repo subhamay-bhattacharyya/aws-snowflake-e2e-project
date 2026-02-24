@@ -1,98 +1,123 @@
-# name: Terraform CI
-# run-name: Build run by ${{ github.actor }} on ${{ github.ref_name }}
+name: Terraform CI
+run-name: Build run by ${{ github.actor }} on ${{ github.ref_name }}
 
-# on:
-#   push:
-#     branches:
-#       - 'main'
-#       - 'feature/**'
-#       - 'bug/**'
-#     paths:
-#       - infra/aws/tf/**
-#       - infra/snowflake/tf/**
-#       - infra/platform/tf/**
-#       - input-jsons/**
-#   pull_request:
-#     branches: [main]
-#     paths:
-#       - infra/aws/tf/**
-#       - infra/snowflake/tf/**
-#       - infra/platform/tf/**
-#       - input-jsons/**
-#   workflow_dispatch:
+on:
+  push:
+    branches:
+      - 'main'
+      - 'feature/**'
+      - 'bug/**'
+    paths:
+      - infra/platform/tf/**
+      - input-jsons/**
+  pull_request:
+    branches: [main]
+    paths:
+      - infra/platform/tf/**
+      - input-jsons/**
+  workflow_dispatch:
 
-# permissions:
-#   contents: write
-#   id-token: write
+permissions:
+  contents: write
+  id-token: write
 
-# jobs:
-#   # ============================================================================
-#   # CI Job
-#   # ============================================================================
+jobs:
+  # ============================================================================
+  # CI Job
+  # ============================================================================
 
-#   ci:
-#     name: CI
-#     uses: subhamay-bhattacharyya-gha/tf-ci-reusable-wf/.github/workflows/ci.yaml@feature/GHA-0037-add-platform-based-multi
-#     with:
-#       cloud-provider: platform
-#       tflint-ver: ${{ vars.TF_LINT_VER }}
-#       backend-type: remote
-#       tf-vars-file: terraform.tfvars
-#       aws-region: ${{ vars.AWS_REGION }}
-#       snowflake-user: ${{ vars.SNOWFLAKE_USER }}
-#       snowflake-organization-name: ${{ vars.SNOWFLAKE_ORGANIZATION_NAME }}
-#       snowflake-account-name: ${{ vars.SNOWFLAKE_ACCOUNT_NAME }}
-#       snowflake-role: ${{ vars.SNOWFLAKE_ROLE }}
-#     secrets:
-#       tfc-token: ${{ secrets.TF_TOKEN_APP_TERRAFORM_IO }}
-#       snowflake-private-key: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
-#       aws-role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+  ci:
+    name: CI
+    uses: subhamay-bhattacharyya-gha/tf-ci-reusable-wf/.github/workflows/ci.yaml@feature/GHA-0037-add-platform-based-multi
+    with:
+      cloud-provider: platform
+      tflint-ver: ${{ vars.TF_LINT_VER }}
+      backend-type: remote
+      tf-vars-file: terraform.tfvars
+      aws-region: ${{ vars.AWS_REGION }}
+      snowflake-user: ${{ vars.SNOWFLAKE_USER }}
+      snowflake-organization-name: ${{ vars.SNOWFLAKE_ORGANIZATION_NAME }}
+      snowflake-account-name: ${{ vars.SNOWFLAKE_ACCOUNT_NAME }}
+      snowflake-role: ${{ vars.SNOWFLAKE_ROLE }}
+    secrets:
+      tfc-token: ${{ secrets.TF_TOKEN_APP_TERRAFORM_IO }}
+      snowflake-private-key: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
+      aws-role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
 
-#   # ============================================================================
-#   # Generate Change Log
-#   # ============================================================================
+  # ============================================================================
+  # Terraform Test Job
+  # ============================================================================
 
-#   generate-changelog:
-#     name: Generate Changelog
-#     runs-on: ubuntu-latest
-#     needs: ci
-#     if: github.ref != 'refs/heads/main'
-#     steps:
-#       - name: Checkout
-#         uses: actions/checkout@v4
-#         with:
-#           fetch-depth: 0
+  tftest:
+    name: Terraform Test
+    needs: ci
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/platform/tf
+    steps:
+      - name: TF Test
+        run: |
+          echo "Placeholder for TF Test reusable action"
+      # - name: Checkout
+      #   uses: actions/checkout@v4
 
-#       - name: Generate changelog
-#         uses: orhun/git-cliff-action@v4
-#         id: git-cliff
-#         with:
-#           config: cliff.toml
-#           args: --verbose
-#         env:
-#           OUTPUT: CHANGELOG.md
+      # - name: Setup Terraform
+      #   uses: hashicorp/setup-terraform@v3
+      #   with:
+      #     terraform_version: ">=1.6.0"
 
-#       - name: Commit changelog
-#         run: |
-#           git config user.name "github-actions[bot]"
-#           git config user.email "github-actions[bot]@users.noreply.github.com"
-#           git add CHANGELOG.md
-#           git diff --staged --quiet || git commit -m "docs: update CHANGELOG.md [skip ci]"
-#           git push
+      # - name: Terraform Init
+      #   run: terraform init -backend=false
 
-#   # ============================================================================
-#   # Release Creation
-#   # ============================================================================
+      # - name: Terraform Test
+      #   run: terraform test
 
-#   create-release:
-#     name: Create Release
-#     runs-on: ubuntu-latest
-#     needs: ci
-#     if: github.ref == 'refs/heads/main'
-#     permissions:
-#       contents: write
-#     steps:
-#       - name: Create Release
-#         uses: subhamay-bhattacharyya-gha/create-release-action@main
-#         with:
-#           github-token: ${{ secrets.GITHUB_TOKEN }}
+  # ============================================================================
+  # Generate Change Log
+  # ============================================================================
+
+  generate-changelog:
+    name: Generate Changelog
+    runs-on: ubuntu-latest
+    needs: tftest
+    if: github.ref != 'refs/heads/main'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate changelog
+        uses: orhun/git-cliff-action@v4
+        id: git-cliff
+        with:
+          config: cliff.toml
+          args: --verbose
+        env:
+          OUTPUT: CHANGELOG.md
+
+      - name: Commit changelog
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md
+          git diff --staged --quiet || git commit -m "docs: update CHANGELOG.md [skip ci]"
+          git push
+
+  # ============================================================================
+  # Release Creation
+  # ============================================================================
+
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: tftest
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+    steps:
+      - name: Create Release
+        uses: subhamay-bhattacharyya-gha/create-release-action@main
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
